@@ -1,11 +1,12 @@
 # backend/app/main.py
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from .api import admin_ingestion
 import os
 import logging
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # Import routers
 from .api import ingestion, chat, documents
@@ -19,12 +20,33 @@ logging.basicConfig(
 # Load environment variables
 load_dotenv()
 
-# Create FastAPI app
+# Create FastAPI app with increased file upload limits
 app = FastAPI(
     title=os.getenv("APP_NAME", "Ulrich AI"),
     version=os.getenv("APP_VERSION", "0.1.0"),
     description="AI-powered knowledge platform for HR and business leaders"
 )
+
+# Configure maximum request body size for large video uploads (1.5 GB)
+MAX_UPLOAD_SIZE = 1610612736  # 1.5 GB in bytes
+
+# Custom middleware to handle large file uploads
+class LimitUploadSizeMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.method == "POST":
+            content_length = request.headers.get("content-length")
+            if content_length:
+                content_length = int(content_length)
+                if content_length > MAX_UPLOAD_SIZE:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File too large. Maximum size allowed is {MAX_UPLOAD_SIZE // (1024*1024*1024)} GB"
+                    )
+        response = await call_next(request)
+        return response
+
+# Add the middleware
+app.add_middleware(LimitUploadSizeMiddleware)
 
 # Configure CORS
 app.add_middleware(

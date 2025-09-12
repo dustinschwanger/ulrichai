@@ -128,27 +128,56 @@ class VideoProcessor:
                     timestamp_granularities=["segment"]
                 )
                 
-            # Process the transcript data
+            # Handle both dict and object responses from OpenAI API
+            # Extract basic transcript info
+            if isinstance(transcript, dict):
+                text = transcript.get('text', '')
+                language = transcript.get('language', 'en')
+                duration = transcript.get('duration', 0.0)
+                segments_data = transcript.get('segments', [])
+            else:
+                text = getattr(transcript, 'text', '')
+                language = getattr(transcript, 'language', 'en')
+                duration = getattr(transcript, 'duration', 0.0)
+                segments_data = getattr(transcript, 'segments', [])
+            
             transcript_data = {
-                'text': transcript.text,
-                'language': transcript.language,
-                'duration': transcript.duration,
+                'text': text,
+                'language': language,
+                'duration': duration,
                 'segments': []
             }
             
-            # Process segments with timestamps
-            for segment in transcript.segments:
-                transcript_data['segments'].append({
-                    'id': segment.id,
-                    'start': segment.start,
-                    'end': segment.end,
-                    'text': segment.text.strip(),
-                    'tokens': getattr(segment, 'tokens', []),
-                    'temperature': getattr(segment, 'temperature', 0.0),
-                    'avg_logprob': getattr(segment, 'avg_logprob', 0.0),
-                    'compression_ratio': getattr(segment, 'compression_ratio', 0.0),
-                    'no_speech_prob': getattr(segment, 'no_speech_prob', 0.0)
-                })
+            # Process segments - handle both dict and object formats
+            for segment in segments_data:
+                if isinstance(segment, dict):
+                    # Segment is a dictionary
+                    segment_info = {
+                        'id': segment.get('id', 0),
+                        'start': segment.get('start', 0.0),
+                        'end': segment.get('end', 0.0),
+                        'text': segment.get('text', '').strip(),
+                        'tokens': segment.get('tokens', []),
+                        'temperature': segment.get('temperature', 0.0),
+                        'avg_logprob': segment.get('avg_logprob', 0.0),
+                        'compression_ratio': segment.get('compression_ratio', 0.0),
+                        'no_speech_prob': segment.get('no_speech_prob', 0.0)
+                    }
+                else:
+                    # Segment is an object
+                    segment_info = {
+                        'id': getattr(segment, 'id', 0),
+                        'start': getattr(segment, 'start', 0.0),
+                        'end': getattr(segment, 'end', 0.0),
+                        'text': getattr(segment, 'text', '').strip(),
+                        'tokens': getattr(segment, 'tokens', []),
+                        'temperature': getattr(segment, 'temperature', 0.0),
+                        'avg_logprob': getattr(segment, 'avg_logprob', 0.0),
+                        'compression_ratio': getattr(segment, 'compression_ratio', 0.0),
+                        'no_speech_prob': getattr(segment, 'no_speech_prob', 0.0)
+                    }
+                
+                transcript_data['segments'].append(segment_info)
             
             logger.info(f"Transcription completed: {len(transcript_data['segments'])} segments")
             return transcript_data

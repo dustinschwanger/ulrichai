@@ -59,6 +59,35 @@ class DocumentNameMapper:
         return name
 
 class ChatService:
+    def _format_document_source(self, source: str) -> str:
+        """Convert technical document source to user-friendly display name"""
+        if not source:
+            return "Main Content"
+        
+        # Define mappings for common sources
+        source_mappings = {
+            'dave-ulrich-hr-academy': 'Dave Ulrich HR Academy',
+            'institute': 'RBL Institute',
+            'rbl-institute': 'RBL Institute',
+            'external': 'External Source',
+            'case-study': 'Case Study',
+            'white-paper': 'White Paper',
+            'research': 'Research',
+            'blog': 'Blog',
+            'article': 'Article',
+            'playbook': 'Playbook',
+            'toolkit': 'Toolkit'
+        }
+        
+        # Check for exact match first
+        if source.lower() in source_mappings:
+            return source_mappings[source.lower()]
+        
+        # If no exact match, format the string nicely
+        # Replace hyphens and underscores with spaces, then title case
+        formatted = source.replace('-', ' ').replace('_', ' ')
+        return ' '.join(word.capitalize() for word in formatted.split())
+
     def __init__(self):
         self.max_context_docs = 5
         self.max_context_chunks = 10
@@ -99,14 +128,19 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
             # Format sources for frontend
             sources = []
             for doc in search_results.get('documents', [])[:4]:  # Limit to 4 like original
+                raw_section = doc.get('section', '')
+                formatted_section = self._format_document_source(raw_section)
+                
                 sources.append({
                     "title": doc.get('title', ''),
                     "filename": doc.get('filename', ''),
                     "content": doc.get('content', '')[:200],  # Preview
                     "score": doc.get('score', 0.0),
                     "page_number": doc.get('page_number'),
-                    "section": "Main Content",
-                    "type": "chunk"
+                    "section": formatted_section,
+                    "type": "chunk",
+                    "start_time": doc.get('start_time'),
+                    "end_time": doc.get('end_time')
                 })
             
             formatted_response = {
@@ -156,6 +190,13 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
                 include_metadata=True
             )
             
+            # Debug: Log what we got back from search
+            logger.info(f"Search returned {len(search_results.matches)} matches")
+            for i, match in enumerate(search_results.matches[:2]):  # Log first 2 matches
+                logger.info(f"Match {i}: score={match.score}, metadata keys: {match.metadata.keys()}")
+                if match.metadata.get('content_type') == 'video':
+                    logger.info(f"Video match - start_time: {match.metadata.get('start_time')}, end_time: {match.metadata.get('end_time')}")
+            
             # Debug: Log search results
             logger.info(f"Raw search results: {len(search_results.matches) if search_results.matches else 0} matches")
             
@@ -172,7 +213,11 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
                         'filename': match.metadata.get('filename', ''),
                         'page_number': match.metadata.get('page_number', ''),
                         'score': float(match.score) if hasattr(match, 'score') else 0.0,
-                        'chunk_id': match.id if hasattr(match, 'id') else None
+                        'chunk_id': match.id if hasattr(match, 'id') else None,
+                        'start_time': match.metadata.get('start_time'),
+                        'end_time': match.metadata.get('end_time'),
+                        'content_type': match.metadata.get('content_type'),
+                        'section': match.metadata.get('section', '')
                     })
                 
                 # If structured query, get sequential chunks from best matches
@@ -292,12 +337,13 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
             doc_title = metadata.get('title', '') or metadata.get('display_name', '')
             
             # Get other metadata
-            section_title = metadata.get('section', '')
+            raw_section = metadata.get('section', '')
+            section_title = self._format_document_source(raw_section)
             page_num = metadata.get('page_number')
             file_url = metadata.get('file_url', '')
             
-            # Create unique identifier to avoid duplicates
-            source_key = f"{doc_filename}_{section_title}_{page_num}"
+            # Create unique identifier to avoid duplicates (use raw section for consistency)
+            source_key = f"{doc_filename}_{raw_section}_{page_num}"
             if source_key in seen_combinations:
                 continue
             seen_combinations.add(source_key)
@@ -309,6 +355,12 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
             content_preview = metadata.get('content', '')
             relevance_summary = self._generate_relevance_summary(content_preview, section_title)
             
+            start_time = metadata.get('start_time')
+            end_time = metadata.get('end_time')
+            content_type = metadata.get('content_type')
+            
+            logger.info(f"Processing source - filename: {doc_filename}, content_type: {content_type}, start_time: {start_time}, end_time: {end_time}")
+            
             sources.append({
                 "title": display_name,
                 "filename": doc_filename,
@@ -319,7 +371,9 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
                 "section": section_title,
                 "document_id": metadata.get('document_id'),
                 "type": metadata.get('chunk_type', 'chunk'),
-                "fileUrl": file_url
+                "fileUrl": file_url,
+                "start_time": start_time,
+                "end_time": end_time
             })
         
         # Sort by score (highest first)
@@ -337,7 +391,7 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
         # If section title is informative, use it
         if section and section != "Main Content":
             key_topic = self._extract_key_topic(content_clean)
-            return f"Discusses {section.lower()} with insights on {key_topic}"
+            return f"Discusses {section} with insights on {key_topic}"
         
         # Extract key concepts from the content
         key_topic = self._extract_key_topic(content_clean)

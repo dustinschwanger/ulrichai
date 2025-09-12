@@ -53,6 +53,8 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 else:
     try:
         from supabase import create_client, Client
+        
+        # Initialize Supabase client
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
         logger.info("Supabase client initialized successfully")
         

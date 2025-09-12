@@ -1,6 +1,6 @@
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Query
 from fastapi.responses import JSONResponse
-from typing import Optional
+from typing import Optional, List, Dict, Any
 import json
 import logging
 from pathlib import Path
@@ -75,6 +75,9 @@ async def _store_video_chunks(doc_id: int, video_chunks: List[VideoChunk], video
                     'content': chunk.content,
                     'document_id': str(doc_id),
                     'filename': chunk.metadata.get('filename', ''),
+                    'title': chunk.metadata.get('display_name', chunk.metadata.get('filename', '')),
+                    'display_name': chunk.metadata.get('display_name', chunk.metadata.get('filename', '')),
+                    'section': chunk.metadata.get('document_source', 'Main Content'),
                     'content_type': 'video',
                     'start_time': chunk.start_time,
                     'end_time': chunk.end_time,
@@ -82,6 +85,8 @@ async def _store_video_chunks(doc_id: int, video_chunks: List[VideoChunk], video
                     'timestamp_display': chunk.metadata.get('timestamp_display', ''),
                     'language': chunk.metadata.get('language', 'en')
                 }
+                
+                logger.info(f"Storing video chunk {i} with start_time: {chunk.start_time}, end_time: {chunk.end_time}")
                 
                 # Store in Pinecone
                 vector_store.index.upsert(
@@ -108,7 +113,7 @@ async def _store_video_chunks(doc_id: int, video_chunks: List[VideoChunk], video
                             'timestamp_display': chunk.metadata.get('timestamp_display', ''),
                             'duration_display': chunk.metadata.get('duration_display', ''),
                             'avg_confidence': chunk.metadata.get('avg_confidence', 0.5),
-                            'metadata': json.dumps(chunk.metadata)
+                            'metadata': json.dumps(chunk.metadata, default=str)
                         }
                     )
                     conn.commit()
@@ -186,11 +191,35 @@ async def upload_with_config(
                     else:
                         content_type = "video/mp4"  # Default
                 
-                response = supabase.storage.from_('documents').upload(
-                    path=final_filename,
-                    file=content,
-                    file_options={"content-type": content_type, "upsert": "true"}
-                )
+                # Direct HTTP upload to Supabase storage with no timeout
+                import httpx
+                import os
+                
+                supabase_url = os.getenv("SUPABASE_URL")
+                supabase_key = os.getenv("SUPABASE_KEY")
+                
+                upload_url = f"{supabase_url}/storage/v1/object/documents/{final_filename}"
+                
+                headers = {
+                    "Authorization": f"Bearer {supabase_key}",
+                    "apikey": supabase_key,
+                    "Content-Type": content_type,
+                    "x-upsert": "true"
+                }
+                
+                # Create httpx client with no timeout (None = no timeout)
+                timeout_config = httpx.Timeout(None)  # No timeout
+                
+                with httpx.Client(timeout=timeout_config) as client:
+                    logger.info("Starting direct upload to Supabase storage with no timeout...")
+                    response = client.post(
+                        upload_url,
+                        headers=headers,
+                        content=content
+                    )
+                    
+                if response.status_code not in [200, 201]:
+                    raise Exception(f"Upload failed with status {response.status_code}: {response.text}")
                 logger.info(f"Upload response: {response}")
                 
                 # Get the public URL
@@ -300,11 +329,22 @@ async def upload_with_config(
                 video_chunker = VideoChunker(config_dict)
                 video_chunks = video_chunker.chunk_video_transcript(
                     video_data['transcript'], 
-                    {'filename': final_filename, 'document_id': doc_id}
+                    {
+                        'filename': final_filename, 
+                        'document_id': doc_id,
+                        'display_name': metadata_dict['displayName'],
+                        'document_source': metadata_dict.get('documentSource', 'Main Content')
+                    }
                 )
                 
                 # Store video chunks and segments in database
                 chunks_created = await _store_video_chunks(doc_id, video_chunks, video_data)
+                
+                # Video processing complete - skip text processing
+                return JSONResponse(
+                    content={"message": "Video uploaded and processed successfully", "document_id": str(doc_id)},
+                    status_code=200
+                )
                 
             else:
                 logger.info("Starting document processing with smart chunking...")
@@ -314,32 +354,32 @@ async def upload_with_config(
                 page_map = {}  # Maps character position to page number
                 
                 if original_ext.lower() == '.pdf':
-                pdf_reader = PyPDF2.PdfReader(io.BytesIO(content))
-                current_pos = 0
-                
-                for page_num in range(len(pdf_reader.pages)):
-                    page = pdf_reader.pages[page_num]
-                    page_text = page.extract_text()
+                    pdf_reader = PyPDF2.PdfReader(io.BytesIO(content))
+                    current_pos = 0
                     
-                    # Track which characters belong to which page
-                    for i in range(len(page_text)):
-                        page_map[current_pos + i] = page_num + 1  # Pages are 1-indexed
+                    for page_num in range(len(pdf_reader.pages)):
+                        page = pdf_reader.pages[page_num]
+                        page_text = page.extract_text()
+                        
+                        # Track which characters belong to which page
+                        for i in range(len(page_text)):
+                            page_map[current_pos + i] = page_num + 1  # Pages are 1-indexed
+                        
+                        text_content += page_text + "\n"
+                        current_pos += len(page_text) + 1
                     
-                    text_content += page_text + "\n"
-                    current_pos += len(page_text) + 1
-                    
-            elif original_ext.lower() in ['.docx', '.doc']:
-                doc = DocxDocument(io.BytesIO(content))
-                # For Word docs, estimate pages (roughly 3000 chars per page)
-                text_content = "\n".join([paragraph.text for paragraph in doc.paragraphs])
-                chars_per_page = 3000
-                for i, char_pos in enumerate(range(0, len(text_content), chars_per_page)):
-                    for j in range(chars_per_page):
-                        if char_pos + j < len(text_content):
-                            page_map[char_pos + j] = i + 1
-            else:
-                logger.warning(f"Unsupported file type for chunking: {original_ext}")
-                text_content = ""
+                elif original_ext.lower() in ['.docx', '.doc']:
+                    doc = DocxDocument(io.BytesIO(content))
+                    # For Word docs, estimate pages (roughly 3000 chars per page)
+                    text_content = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+                    chars_per_page = 3000
+                    for i, char_pos in enumerate(range(0, len(text_content), chars_per_page)):
+                        for j in range(chars_per_page):
+                            if char_pos + j < len(text_content):
+                                page_map[char_pos + j] = i + 1
+                else:
+                    logger.warning(f"Unsupported file type for chunking: {original_ext}")
+                    text_content = ""
             
             if text_content:
                 # Use Sandusky Current's simple chunking approach
@@ -371,7 +411,7 @@ async def upload_with_config(
                 for i, chunk_text in enumerate(chunk_texts):
                     chunk = type('Chunk', (), {
                         'content': chunk_text,
-                        'section': 'Main Content',
+                        'section': metadata_dict.get('documentSource', 'Main Content'),
                         'chunk_type': 'text',
                         'metadata': {
                             'filename': final_filename,
@@ -580,7 +620,7 @@ async def reindex_all_documents():
                         for i, chunk_text in enumerate(chunk_texts):
                             chunk = type('Chunk', (), {
                                 'content': chunk_text,
-                                'section': 'Main Content',
+                                'section': row.document_source or 'Main Content',
                                 'chunk_type': 'text',
                                 'metadata': {
                                     'filename': row.filename,
