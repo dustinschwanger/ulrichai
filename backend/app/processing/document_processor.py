@@ -15,7 +15,12 @@ logger = logging.getLogger(__name__)
 
 class DocumentProcessor:
     def __init__(self):
-        self.anthropic = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if api_key:
+            self.anthropic = Anthropic(api_key=api_key)
+        else:
+            self.anthropic = None
+            print("WARNING: ANTHROPIC_API_KEY not set, AI features will be disabled")
         self.chunk_size = 500  # tokens
         self.chunk_overlap = 100  # tokens
         
