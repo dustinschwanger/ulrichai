@@ -1,4 +1,3 @@
-# Railway configuration for backend service
 [build]
 builder = "nixpacks"
 

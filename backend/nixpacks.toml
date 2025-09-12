@@ -8,7 +8,7 @@ cmds = ['pip install -r requirements.txt']
 cmds = ['mkdir -p uploads']
 
 [variables]
-PYTHONPATH = '/app/backend'
+PYTHONPATH = '/app'
 
 [start]
-cmd = 'cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT'
+cmd = 'uvicorn app.main:app --host 0.0.0.0 --port $PORT'
