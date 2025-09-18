@@ -49,9 +49,28 @@ class LimitUploadSizeMiddleware(BaseHTTPMiddleware):
 app.add_middleware(LimitUploadSizeMiddleware)
 
 # Configure CORS
+# Get allowed origins from environment variable or use defaults
+allowed_origins = os.getenv("CORS_ORIGINS", "").split(",") if os.getenv("CORS_ORIGINS") else []
+default_origins = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:3002",
+    "http://localhost:8000",
+    "https://*.up.railway.app",  # Allow all Railway apps
+    "https://*.railway.app"       # Allow all Railway domains
+]
+
+# Combine custom and default origins
+all_origins = list(set(allowed_origins + default_origins)) if allowed_origins else default_origins
+
+# For production, allow all origins temporarily to diagnose the issue
+# In production, you should specify exact origins
+if os.getenv("ENVIRONMENT") == "production":
+    all_origins = ["*"]  # Allow all origins in production for now
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://localhost:8000"],
+    allow_origins=all_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
