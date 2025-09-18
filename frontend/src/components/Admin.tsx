@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Upload, FileText, X, Search, Download, Eye } from 'lucide-react';
 import { config } from '../config';
 import './Admin.css';
@@ -67,11 +67,7 @@ const Admin: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchDocuments();
-  }, []);
-
-  const fetchDocuments = async () => {
+  const fetchDocuments = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     
@@ -122,16 +118,16 @@ const Admin: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [searchTerm, filterSource, filterType]);
 
-  // Refetch when filters change
+  // Initial load and refetch when filters change
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchDocuments();
     }, 500); // Debounce search
-    
+
     return () => clearTimeout(timer);
-  }, [searchTerm, filterSource, filterType]);
+  }, [fetchDocuments]);
 
   const handleViewDocument = async (doc: Document) => {
     if (doc.fileUrl) {
