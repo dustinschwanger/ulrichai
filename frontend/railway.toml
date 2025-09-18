@@ -1,6 +1,0 @@
-# Railway configuration for frontend service
-[build]
-builder = "nixpacks"
-
-[deploy]
-startCommand = "serve -s build -l $PORT"
