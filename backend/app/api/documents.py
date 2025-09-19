@@ -11,8 +11,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Path to uploads folder
-UPLOADS_DIR = Path("uploads")
+# Path to uploads folder - use absolute path to the root uploads directory
+import os
+UPLOADS_DIR = Path(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))) / "uploads"
 
 @router.get("/documents/{filename:path}")
 async def get_document(filename: str, page: Optional[int] = None):

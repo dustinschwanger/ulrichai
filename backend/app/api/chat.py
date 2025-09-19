@@ -1,8 +1,11 @@
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, AsyncGenerator
 import uuid
 import logging
+import json
+import asyncio
 
 from ..services.chat_service import chat_service
 
@@ -19,6 +22,52 @@ class ChatResponse(BaseModel):
     sources: List[Dict[str, Any]]
     session_id: str
     timestamp: str
+
+@router.post("/query/stream")
+async def chat_query_stream(request: ChatRequest):
+    """Process a chat query and stream the response"""
+
+    # Generate session ID if not provided
+    session_id = request.session_id or str(uuid.uuid4())
+
+    # Validate query
+    if not request.query or len(request.query.strip()) == 0:
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+
+    if len(request.query) > 2000:
+        raise HTTPException(status_code=400, detail="Query is too long (max 2000 characters)")
+
+    async def generate() -> AsyncGenerator[str, None]:
+        try:
+            logger.info(f"Processing streaming query: {request.query[:100]}...")
+
+            # Start streaming immediately with empty sources
+            yield f"data: {json.dumps({'type': 'sources', 'sources': []})}\n\n"
+
+            # Start getting sources in the background (don't wait)
+            sources_task = asyncio.create_task(chat_service.get_sources_for_query(request.query))
+
+            # Stream the response immediately
+            async for chunk in chat_service.process_query_stream(request.query, session_id):
+                yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
+                # Remove delay for faster streaming
+
+            # After streaming is done, check if sources are ready
+            try:
+                sources = await asyncio.wait_for(sources_task, timeout=1.0)
+                # Send updated sources if available
+                yield f"data: {json.dumps({'type': 'sources_update', 'sources': sources})}\n\n"
+            except asyncio.TimeoutError:
+                logger.warning("Sources not ready in time, skipping")
+
+            # Send completion signal
+            yield f"data: {json.dumps({'type': 'done', 'session_id': session_id})}\n\n"
+
+        except Exception as e:
+            logger.error(f"Error in streaming endpoint: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 @router.post("/query", response_model=ChatResponse)
 async def chat_query(request: ChatRequest):

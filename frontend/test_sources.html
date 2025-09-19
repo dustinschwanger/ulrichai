@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Sources Display</title>
+    <style>
+        body {
+            font-family: 'Open Sans', sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .source-card {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            background: #f9f9f9;
+        }
+        .source-title {
+            font-weight: bold;
+            color: #0086D6;
+            margin-bottom: 5px;
+        }
+        .source-meta {
+            color: #666;
+            font-size: 14px;
+            margin: 5px 0;
+        }
+        .source-content {
+            color: #333;
+            margin-top: 10px;
+            font-style: italic;
+        }
+        .score {
+            display: inline-block;
+            background: #0086D6;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        #status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        button {
+            background: #0086D6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #0074B8;
+        }
+        #response-text {
+            padding: 15px;
+            background: #f0f0f0;
+            border-radius: 4px;
+            margin: 20px 0;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 style="color: #071D49;">RBL AI - Sources Test</h1>
+
+        <button onclick="testAPI()">Test API with Sources</button>
+
+        <div id="status"></div>
+
+        <div id="response-text"></div>
+
+        <div id="sources-container"></div>
+    </div>
+
+    <script>
+        async function testAPI() {
+            const statusDiv = document.getElementById('status');
+            const sourcesDiv = document.getElementById('sources-container');
+            const responseDiv = document.getElementById('response-text');
+
+            statusDiv.textContent = 'Testing API...';
+            sourcesDiv.innerHTML = '';
+            responseDiv.innerHTML = '';
+
+            const testQuery = "What are the key dimensions of effective leadership according to Dave Ulrich?";
+
+            try {
+                // Check which API to use
+                const apiUrl = 'https://ulrichai-production.up.railway.app/api/chat/query';
+
+                console.log('Making request to:', apiUrl);
+                statusDiv.textContent = `Making request to: ${apiUrl}`;
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query: testQuery,
+                        session_id: `test-${Date.now()}`
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                console.log('Full API Response:', data);
+
+                // Display the response text
+                responseDiv.innerHTML = `<h3>Response:</h3>${data.answer.replace(/\n/g, '<br>')}`;
+
+                // Check for sources
+                if (data.sources && data.sources.length > 0) {
+                    statusDiv.textContent = `✅ Success! Found ${data.sources.length} sources`;
+                    statusDiv.style.background = '#c8e6c9';
+                    statusDiv.style.color = '#2e7d32';
+
+                    // Display sources
+                    sourcesDiv.innerHTML = '<h2>Sources:</h2>';
+
+                    data.sources.forEach((source, index) => {
+                        const sourceCard = document.createElement('div');
+                        sourceCard.className = 'source-card';
+                        sourceCard.innerHTML = `
+                            <div class="source-title">${index + 1}. ${source.title || 'Untitled'}</div>
+                            <div class="source-meta">
+                                <span class="score">${(source.score * 100).toFixed(1)}% relevance</span>
+                                ${source.page_number ? ` • Page ${source.page_number}` : ''}
+                                ${source.section ? ` • ${source.section}` : ''}
+                            </div>
+                            <div class="source-meta">File: ${source.filename || 'Unknown'}</div>
+                            <div class="source-content">"${source.content}"</div>
+                        `;
+                        sourcesDiv.appendChild(sourceCard);
+                    });
+                } else {
+                    statusDiv.textContent = '❌ No sources found in response!';
+                    statusDiv.style.background = '#ffcdd2';
+                    statusDiv.style.color = '#c62828';
+                    console.error('No sources in response:', data);
+                }
+
+            } catch (error) {
+                statusDiv.textContent = `Error: ${error.message}`;
+                statusDiv.style.background = '#ffcdd2';
+                statusDiv.style.color = '#c62828';
+                console.error('Error:', error);
+            }
+        }
+    </script>
+</body>
+</html>

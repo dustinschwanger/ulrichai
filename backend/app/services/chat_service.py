@@ -295,17 +295,106 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
             return []
     
     
-    async def generate_response(self, prompt: str) -> str:
-        """Generate response using OpenAI"""
-        
+    async def get_sources_for_query(self, query: str) -> List[Dict[str, Any]]:
+        """Get sources for a query without generating response"""
         try:
-            response = openai.chat.completions.create(
-                model="gpt-4",  # Use GPT-4 like Sandusky Current
+            search_results = await self.search_context(query, limit=10)
+            sources = []
+            for doc in search_results.get('documents', [])[:4]:
+                raw_section = doc.get('section', '')
+                formatted_section = self._format_document_source(raw_section)
+
+                sources.append({
+                    "title": doc.get('title', ''),
+                    "filename": doc.get('filename', ''),
+                    "content": doc.get('content', '')[:200],
+                    "score": doc.get('score', 0.0),
+                    "page_number": doc.get('page_number'),
+                    "section": formatted_section,
+                    "type": "chunk",
+                    "start_time": doc.get('start_time'),
+                    "end_time": doc.get('end_time')
+                })
+            return sources
+        except Exception as e:
+            logger.error(f"Error getting sources: {e}")
+            return []
+
+    async def process_query_stream(self, query: str, session_id: Optional[str] = None):
+        """Process query with streaming response"""
+        try:
+            logger.info(f"Processing streaming query: {query}")
+
+            # Search for context
+            search_results = await self.search_context(query, limit=10)
+            context_prompt = self.build_context_prompt(search_results)
+
+            # Create the full prompt
+            full_prompt = f"""Based on the following context, please provide a comprehensive answer about HR and organizational development.
+
+{context_prompt}
+
+Question: {query}
+
+IMPORTANT INSTRUCTIONS:
+1. Present information with the authoritative confidence of Dave Ulrich's decades of organizational research
+2. Extract frameworks, dimensions, and lists exactly as they appear in the source materials
+3. Use Dave Ulrich's direct, business-focused communication style - no hedging or tentative language
+4. Structure responses with clear frameworks and practical applications
+5. Focus on actionable insights that drive organizational effectiveness
+6. Avoid phrases like "However, this may not be complete" or "additional factors may exist"
+
+Provide a comprehensive, authoritative response in Dave Ulrich's voice based on the context above."""
+
+            # Import the enhanced Ulrich system prompt
+            from ..prompts.ulrich_system_prompt import ULRICH_SYSTEM_PROMPT
+
+            # Use async streaming
+            import openai as openai_module
+            client = openai_module.AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            response_stream = await client.chat.completions.create(
+                model="gpt-4o-mini",
                 max_tokens=1500,
                 messages=[
                     {
-                        "role": "system", 
-                        "content": "You are Dave Ulrich's research and insights translated into clear, authoritative guidance. Respond with the confidence and expertise of a leading organizational development authority. Draw from decades of research with Fortune 500 companies and global organizations. Use Dave Ulrich's direct, business-focused communication style - clear frameworks, practical applications, and research-backed recommendations. Avoid hedging language or disclaimers about incomplete information. Present insights as definitive guidance based on extensive organizational research."
+                        "role": "system",
+                        "content": ULRICH_SYSTEM_PROMPT
+                    },
+                    {
+                        "role": "user",
+                        "content": full_prompt
+                    }
+                ],
+                temperature=0.7,
+                stream=True
+            )
+
+            # Yield chunks as they come
+            async for chunk in response_stream:
+                if chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+
+            # Log analytics
+            await self.log_analytics(query, {"streaming": True}, session_id)
+
+        except Exception as e:
+            logger.error(f"Error in streaming query: {e}")
+            yield "I apologize, but I'm having trouble generating a response. Please try again."
+
+    async def generate_response(self, prompt: str) -> str:
+        """Generate response using OpenAI"""
+
+        try:
+            # Import the enhanced Ulrich system prompt
+            from ..prompts.ulrich_system_prompt import ULRICH_SYSTEM_PROMPT
+
+            response = openai.chat.completions.create(
+                model="gpt-4o-mini",  # Use GPT-4o-mini for faster responses
+                max_tokens=1500,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": ULRICH_SYSTEM_PROMPT
                     },
                     {
                         "role": "user",
@@ -314,9 +403,9 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
                 ],
                 temperature=0.7
             )
-            
+
             return response.choices[0].message.content
-            
+
         except Exception as e:
             logger.error(f"Error generating response: {e}")
             return "I apologize, but I'm having trouble generating a response right now. Please try again."
