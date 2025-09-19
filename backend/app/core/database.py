@@ -1,4 +1,5 @@
 from sqlalchemy import create_engine, text
+from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 import os
@@ -7,6 +8,9 @@ import logging
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+# Create Base for SQLAlchemy models
+Base = declarative_base()
 
 class Database:
     def __init__(self):
@@ -77,5 +81,20 @@ else:
         logger.error(f"Failed to initialize Supabase client: {e}")
         logger.error("Check your SUPABASE_URL and SUPABASE_KEY in .env file")
 
-# Export both db and supabase
-__all__ = ['db', 'supabase']
+# FastAPI dependency for database sessions
+def get_db():
+    """
+    Dependency for FastAPI endpoints to get database session.
+    Yields a session and ensures it's closed after the request.
+    """
+    session = db.get_session()
+    if session:
+        try:
+            yield session
+        finally:
+            session.close()
+    else:
+        raise Exception("Database not configured")
+
+# Export db, supabase, Base, and get_db
+__all__ = ['db', 'supabase', 'Base', 'get_db']

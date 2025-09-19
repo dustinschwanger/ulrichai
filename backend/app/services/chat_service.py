@@ -320,17 +320,23 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
             logger.error(f"Error getting sources: {e}")
             return []
 
-    async def process_query_stream(self, query: str, session_id: Optional[str] = None):
-        """Process query with streaming response"""
+    async def process_query_stream(self, query: str, session_id: Optional[str] = None, context: Optional[Dict[str, Any]] = None):
+        """Process query with streaming response, optionally with lesson context"""
         try:
             logger.info(f"Processing streaming query: {query}")
 
-            # Search for context
-            search_results = await self.search_context(query, limit=10)
-            context_prompt = self.build_context_prompt(search_results)
+            # Check if this is a lesson context query
+            if context and context.get('type') == 'lesson':
+                # For lesson queries, we already have context built into the query
+                # so we can skip the search and use the query directly
+                full_prompt = query  # The query already includes lesson context from frontend
+            else:
+                # Normal query - search for context
+                search_results = await self.search_context(query, limit=10)
+                context_prompt = self.build_context_prompt(search_results)
 
-            # Create the full prompt
-            full_prompt = f"""Based on the following context, please provide a comprehensive answer about HR and organizational development.
+                # Create the full prompt for non-lesson queries
+                full_prompt = f"""Based on the following context, please provide a comprehensive answer about HR and organizational development.
 
 {context_prompt}
 
@@ -349,6 +355,24 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
             # Import the enhanced Ulrich system prompt
             from ..prompts.ulrich_system_prompt import ULRICH_SYSTEM_PROMPT
 
+            # Choose system prompt based on context
+            if context and context.get('type') == 'lesson':
+                # For lessons, use a tutor-focused system prompt
+                system_prompt = """You are an expert AI tutor helping students learn. Your role is to:
+
+1. Explain concepts clearly and patiently
+2. Use relatable examples and analogies
+3. Break down complex topics into digestible parts
+4. Encourage learning and understanding
+5. Answer questions directly while relating to the lesson material
+6. Provide practice problems when appropriate
+7. Be supportive and encouraging
+
+You should be knowledgeable, patient, and focused on helping the student truly understand the material."""
+            else:
+                # For general queries, use the Ulrich system prompt
+                system_prompt = ULRICH_SYSTEM_PROMPT
+
             # Use async streaming
             import openai as openai_module
             client = openai_module.AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -358,7 +382,7 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
                 messages=[
                     {
                         "role": "system",
-                        "content": ULRICH_SYSTEM_PROMPT
+                        "content": system_prompt
                     },
                     {
                         "role": "user",

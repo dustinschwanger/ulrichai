@@ -10,6 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 # Import routers
 from .api import ingestion, chat, documents
+from .lms.api import organizations_router, auth_router, courses_router, qa_router, notes_router
 
 # Configure logging
 logging.basicConfig(
@@ -81,6 +82,13 @@ app.include_router(ingestion.router, prefix="/api/ingestion", tags=["ingestion"]
 app.include_router(chat.router)
 app.include_router(documents.router, prefix="/api", tags=["documents"])
 app.include_router(admin_ingestion.router, prefix="/api/ingestion", tags=["admin"])
+
+# Include LMS routers
+app.include_router(organizations_router)
+app.include_router(auth_router)
+app.include_router(courses_router)
+app.include_router(qa_router)
+app.include_router(notes_router)
 
 @app.on_event("startup")
 async def startup_event():

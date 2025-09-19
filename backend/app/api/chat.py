@@ -16,6 +16,7 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 class ChatRequest(BaseModel):
     query: str
     session_id: Optional[str] = None
+    context: Optional[Dict[str, Any]] = None  # For lesson context
 
 class ChatResponse(BaseModel):
     answer: str
@@ -47,8 +48,8 @@ async def chat_query_stream(request: ChatRequest):
             # Start getting sources in the background (don't wait)
             sources_task = asyncio.create_task(chat_service.get_sources_for_query(request.query))
 
-            # Stream the response immediately
-            async for chunk in chat_service.process_query_stream(request.query, session_id):
+            # Stream the response immediately with context
+            async for chunk in chat_service.process_query_stream(request.query, session_id, context=request.context):
                 yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
                 # Remove delay for faster streaming
 
