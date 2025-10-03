@@ -60,9 +60,9 @@ module.exports = {
         },
       };
 
-      // Reduce bundle size
+      // Disable minification temporarily to avoid MUI compatibility issues
       if (process.env.NODE_ENV === 'production') {
-        webpackConfig.optimization.minimize = true;
+        webpackConfig.optimization.minimize = false;
         webpackConfig.devtool = false;
       }
 
