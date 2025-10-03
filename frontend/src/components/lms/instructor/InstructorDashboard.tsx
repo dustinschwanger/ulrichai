@@ -217,12 +217,12 @@ const InstructorDashboard = () => {
         <Button
           variant="contained"
           startIcon={<Add />}
-          onClick={() => navigate('/lms/instructor/create-course')}
+          onClick={() => navigate('/lms/instructor/course-builder')}
           sx={{
             background: 'linear-gradient(45deg, #667eea 30%, #764ba2 90%)',
           }}
         >
-          Create New Course
+          Course Builder
         </Button>
       </Box>
 

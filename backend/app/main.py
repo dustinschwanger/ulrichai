@@ -10,7 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 # Import routers
 from .api import ingestion, chat, documents
-from .lms.api import organizations_router, auth_router, courses_router, qa_router, notes_router
+from .lms.api import organizations_router, auth_router, courses_router, qa_router, notes_router, quiz_router, course_builder_router, discussions_router, progress_router
 
 # Configure logging
 logging.basicConfig(
@@ -89,6 +89,10 @@ app.include_router(auth_router)
 app.include_router(courses_router)
 app.include_router(qa_router)
 app.include_router(notes_router)
+app.include_router(quiz_router)
+app.include_router(course_builder_router)
+app.include_router(discussions_router)
+app.include_router(progress_router)
 
 @app.on_event("startup")
 async def startup_event():

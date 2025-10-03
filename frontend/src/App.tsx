@@ -15,7 +15,11 @@ import CourseCatalog from './components/lms/courses/CourseCatalog';
 import CourseDetail from './components/lms/courses/CourseDetail';
 import MyCourses from './components/lms/courses/MyCourses';
 import CourseViewer from './components/lms/courses/CourseViewer';
+import CoursePreview from './components/lms/CoursePreview';
 import InstructorDashboard from './components/lms/instructor/InstructorDashboard';
+import { CourseBuilder, CourseEditor } from './components/lms/instructor/CourseBuilder';
+import AdminDashboard from './components/lms/admin/AdminDashboard';
+import CourseVersions from './components/lms/admin/CourseVersions';
 import { theme, darkTheme } from './styles/theme';
 import './App.css';
 
@@ -67,23 +71,28 @@ function App() {
                 {/* AI Assistant integrated within LMS */}
                 <Route path="ai-assistant" element={<Chat />} />
 
-                {/* Instructor Routes */}
-                <Route path="instructor">
-                  <Route index element={<InstructorDashboard />} />
-                  <Route path="dashboard" element={<InstructorDashboard />} />
-                  <Route path="courses" element={<InstructorDashboard />} />
-                  <Route path="create-course" element={<div style={{ padding: 20 }}>Create Course Coming Soon</div>} />
-                  <Route path="students" element={<div style={{ padding: 20 }}>Students Coming Soon</div>} />
-                  <Route path="analytics" element={<div style={{ padding: 20 }}>Analytics Coming Soon</div>} />
-                </Route>
+                {/* Course Preview Route */}
+                <Route path="courses/:courseId/preview" element={<CoursePreview />} />
 
-                {/* Admin Routes */}
+                {/* Admin Routes - Consolidated for both instructors and admins */}
                 <Route path="admin">
+                  <Route index element={<AdminDashboard />} />
+                  <Route path="dashboard" element={<AdminDashboard />} />
+                  <Route path="courses" element={<CourseBuilder />} />
+                  <Route path="courses/new" element={<CourseBuilder />} />
+                  <Route path="courses/:courseId" element={<CourseEditor />} />
+                  <Route path="courses/:courseId/versions" element={<CourseVersions />} />
+                  <Route path="courses/:courseId/version/:versionId" element={<CourseEditor />} />
                   <Route path="organizations" element={<div style={{ padding: 20 }}>Organizations Coming Soon</div>} />
                   <Route path="users" element={<div style={{ padding: 20 }}>User Management Coming Soon</div>} />
+                  <Route path="students" element={<div style={{ padding: 20 }}>Students Coming Soon</div>} />
                   <Route path="analytics" element={<div style={{ padding: 20 }}>Platform Analytics Coming Soon</div>} />
                   <Route path="settings" element={<div style={{ padding: 20 }}>Admin Settings Coming Soon</div>} />
+                  <Route path="settings/:section" element={<div style={{ padding: 20 }}>Settings Section Coming Soon</div>} />
                 </Route>
+
+                {/* Legacy instructor routes redirect to admin */}
+                <Route path="instructor/*" element={<Navigate to="/lms/admin" replace />} />
               </Route>
             </Route>
           </Routes>

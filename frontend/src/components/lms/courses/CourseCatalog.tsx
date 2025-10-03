@@ -49,7 +49,7 @@ import {
   Quiz,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { useGetCoursesQuery } from '../../../store/api/courseApi';
+import { useGetCoursesQuery } from '../../../features/lms/courseBuilderSlice';
 
 interface FilterState {
   category: string;
@@ -77,15 +77,13 @@ const CourseCatalog: React.FC = () => {
     features: [],
   });
 
-  // Fetch courses from API
-  const { data: coursesData, isLoading } = useGetCoursesQuery({
-    page,
-    limit: 12,
-    search: searchTerm,
-    category: filters.category !== 'all' ? filters.category : undefined,
-    difficultyLevel: filters.difficulty.length > 0 ? filters.difficulty[0] : undefined,
-    isPublished: true,
-  });
+  // Fetch courses from API - only show published courses
+  const { data: allCourses, isLoading } = useGetCoursesQuery();
+
+  // Filter for published courses only
+  const publishedCourses = useMemo(() => {
+    return allCourses?.filter((course: any) => course.is_published) || [];
+  }, [allCourses]);
 
   // Categories for filter
   const categories = [
@@ -98,24 +96,55 @@ const CourseCatalog: React.FC = () => {
     { value: 'health', label: 'Health & Fitness' },
   ];
 
-  // Mock enhanced course data (since API doesn't have all fields yet)
-  const enhancedCourses = useMemo(() => {
-    if (!coursesData?.items) return [];
+  // Apply filters and sorting (but not pagination) to published courses
+  const filteredCoursesBeforePagination = useMemo(() => {
+    let filtered = [...publishedCourses];
 
-    return coursesData.items.map((course: any, index: number) => ({
-      ...course,
-      rating: 4.5 - (index * 0.1),
-      students: 1234 + (index * 100),
-      lessons: 12 + index,
-      instructor: {
-        name: `Dr. ${['Smith', 'Johnson', 'Williams', 'Brown'][index % 4]}`,
-        avatar: `https://ui-avatars.com/api/?name=${course.title}`,
-      },
-      thumbnail: `https://picsum.photos/400/225?random=${course.id}`,
-      level: course.difficultyLevel || 'beginner',
-      isFeatured: index < 3,
-    }));
-  }, [coursesData]);
+    // Apply search filter
+    if (searchTerm) {
+      filtered = filtered.filter(course =>
+        course.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        course.description?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
+    // Apply category filter
+    if (filters.category !== 'all') {
+      filtered = filtered.filter(course => course.category === filters.category);
+    }
+
+    // Apply difficulty filter
+    if (filters.difficulty.length > 0) {
+      filtered = filtered.filter(course =>
+        filters.difficulty.includes(course.difficulty_level || 'beginner')
+      );
+    }
+
+    // Apply sorting
+    switch (sortBy) {
+      case 'newest':
+        filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        break;
+      case 'popular':
+      default:
+        // For now, sort by is_featured then by created_at
+        filtered.sort((a, b) => {
+          if (a.is_featured && !b.is_featured) return -1;
+          if (!a.is_featured && b.is_featured) return 1;
+          return 0;
+        });
+        break;
+    }
+
+    return filtered;
+  }, [publishedCourses, searchTerm, filters, sortBy]);
+
+  // Apply pagination to filtered courses
+  const filteredCourses = useMemo(() => {
+    const start = (page - 1) * 12;
+    const end = start + 12;
+    return filteredCoursesBeforePagination.slice(start, end);
+  }, [filteredCoursesBeforePagination, page]);
 
   const handleToggleBookmark = (courseId: string) => {
     setBookmarkedCourses(prev =>
@@ -349,11 +378,11 @@ const CourseCatalog: React.FC = () => {
           {/* Results Summary */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
             <Typography variant="body2" color="text.secondary">
-              {isLoading ? 'Loading...' : `${enhancedCourses.length} courses found`}
+              {isLoading ? 'Loading...' : `${filteredCoursesBeforePagination.length} courses found`}
             </Typography>
-            {enhancedCourses.length > 0 && (
+            {filteredCourses.length > 0 && (
               <Pagination
-                count={Math.ceil((coursesData?.total || 0) / 12)}
+                count={Math.ceil((filteredCoursesBeforePagination.length || 0) / 12)}
                 page={page}
                 onChange={(e, value) => setPage(value)}
                 color="primary"
@@ -377,7 +406,7 @@ const CourseCatalog: React.FC = () => {
                   </Card>
                 </Grid>
               ))
-            ) : enhancedCourses.length === 0 ? (
+            ) : filteredCourses.length === 0 ? (
               <Grid item xs={12}>
                 <Paper sx={{ p: 4, textAlign: 'center' }}>
                   <School sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
@@ -391,7 +420,7 @@ const CourseCatalog: React.FC = () => {
               </Grid>
             ) : (
               // Course cards
-              enhancedCourses.map((course) => (
+              filteredCourses.map((course) => (
                 <Grid item xs={12} sm={6} lg={4} key={course.id}>
                   <Card
                     sx={{
@@ -407,7 +436,7 @@ const CourseCatalog: React.FC = () => {
                     }}
                   >
                     {/* Featured Badge */}
-                    {course.isFeatured && (
+                    {course.is_featured && (
                       <Badge
                         sx={{
                           position: 'absolute',
@@ -488,78 +517,70 @@ const CourseCatalog: React.FC = () => {
                       </Typography>
 
                       {/* Instructor */}
-                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
-                        <Avatar
-                          src={course.instructor.avatar}
-                          sx={{ width: 24, height: 24 }}
-                        />
-                        <Typography variant="body2" color="text.secondary">
-                          {course.instructor.name}
-                        </Typography>
-                      </Box>
-
-                      {/* Rating & Students */}
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <Rating
-                            value={course.rating}
-                            readOnly
-                            size="small"
-                            precision={0.5}
-                          />
+                      {course.instructor && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
+                          <Avatar
+                            sx={{ width: 24, height: 24 }}
+                          >
+                            {course.instructor.first_name?.[0]}{course.instructor.last_name?.[0]}
+                          </Avatar>
                           <Typography variant="body2" color="text.secondary">
-                            ({course.rating})
+                            {course.instructor.first_name} {course.instructor.last_name}
                           </Typography>
                         </Box>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <People sx={{ fontSize: 16, color: 'text.secondary' }} />
-                          <Typography variant="body2" color="text.secondary">
-                            {course.students.toLocaleString()}
-                          </Typography>
-                        </Box>
-                      </Box>
+                      )}
 
                       {/* Course Info */}
                       <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                           <AccessTime sx={{ fontSize: 16, color: 'text.secondary' }} />
                           <Typography variant="body2" color="text.secondary">
-                            {course.durationHours || 10}h
+                            {course.duration_hours || 0}h
                           </Typography>
                         </Box>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                           <PlayCircleOutline sx={{ fontSize: 16, color: 'text.secondary' }} />
                           <Typography variant="body2" color="text.secondary">
-                            {course.lessons} lessons
+                            {course.lesson_count || 0} activities
                           </Typography>
                         </Box>
-                      </Box>
-
-                      {/* AI Enhanced Badge */}
-                      {course.isAiEnhanced && (
-                        <Chip
-                          label="AI-Powered"
-                          size="small"
-                          color="secondary"
-                          sx={{ mb: 2 }}
-                        />
-                      )}
-
-                      {/* Price */}
-                      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
-                        <Typography variant="h6" color="primary">
-                          {course.price === 0 ? 'Free' : `$${course.price}`}
-                        </Typography>
-                        {course.price > 0 && (
-                          <Typography
-                            variant="body2"
-                            color="text.secondary"
-                            sx={{ textDecoration: 'line-through' }}
-                          >
-                            ${(course.price * 1.5).toFixed(2)}
-                          </Typography>
+                        {course.module_count > 0 && (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <School sx={{ fontSize: 16, color: 'text.secondary' }} />
+                            <Typography variant="body2" color="text.secondary">
+                              {course.module_count} modules
+                            </Typography>
+                          </Box>
                         )}
                       </Box>
+
+                      {/* Tags */}
+                      {course.tags && course.tags.length > 0 && (
+                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 2 }}>
+                          {course.tags.slice(0, 3).map((tag: string) => (
+                            <Chip
+                              key={tag}
+                              label={tag}
+                              size="small"
+                              variant="outlined"
+                            />
+                          ))}
+                        </Box>
+                      )}
+
+                      {/* Difficulty Level */}
+                      {course.difficulty_level && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            Level:
+                          </Typography>
+                          <Chip
+                            label={course.difficulty_level}
+                            size="small"
+                            color={course.difficulty_level === 'beginner' ? 'success' : course.difficulty_level === 'intermediate' ? 'warning' : 'error'}
+                          />
+                        </Box>
+                      )}
                     </CardContent>
 
                     <CardActions sx={{ p: 2, pt: 0 }}>
@@ -584,10 +605,10 @@ const CourseCatalog: React.FC = () => {
           </Grid>
 
           {/* Bottom Pagination */}
-          {enhancedCourses.length > 0 && (
+          {filteredCourses.length > 0 && (
             <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
               <Pagination
-                count={Math.ceil((coursesData?.total || 0) / 12)}
+                count={Math.ceil((filteredCoursesBeforePagination.length || 0) / 12)}
                 page={page}
                 onChange={(e, value) => setPage(value)}
                 color="primary"

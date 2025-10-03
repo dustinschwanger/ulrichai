@@ -11,6 +11,39 @@ import uuid
 from app.core.database import Base
 
 
+class Section(Base):
+    """
+    Sections are the top-level organization within a course version (e.g., Week 1, Week 2).
+    They contain modules and help organize the course into major segments.
+    """
+    __tablename__ = "lms_sections"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Parent course version
+    course_version_id = Column(UUID(as_uuid=True), ForeignKey("lms_course_versions.id"), nullable=False, index=True)
+
+    # Section Information
+    title = Column(String(500), nullable=False)  # e.g., "Week 1 | Developing an Outside-In Mindset"
+    description = Column(Text, nullable=True)
+    sequence_order = Column(Integer, nullable=False)
+
+    # Section Settings
+    is_optional = Column(Boolean, default=False)
+    is_locked = Column(Boolean, default=False)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+
+    # Relationships
+    course_version = relationship("CourseVersion", back_populates="sections")
+    modules = relationship("Module", back_populates="section", order_by="Module.sequence_order")
+
+    def __repr__(self):
+        return f"<Section {self.title} (order: {self.sequence_order})>"
+
+
 class Module(Base):
     """
     Modules are the main sections of a course version.
@@ -20,7 +53,10 @@ class Module(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    # Parent course version
+    # Parent section
+    section_id = Column(UUID(as_uuid=True), ForeignKey("lms_sections.id"), nullable=False, index=True)
+
+    # Keep course_version_id for backward compatibility and direct queries
     course_version_id = Column(UUID(as_uuid=True), ForeignKey("lms_course_versions.id"), nullable=False, index=True)
 
     # Module Information
@@ -42,6 +78,7 @@ class Module(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
     # Relationships
+    section = relationship("Section", back_populates="modules")
     course_version = relationship("CourseVersion", back_populates="modules")
     lessons = relationship("Lesson", back_populates="module", order_by="Lesson.sequence_order")
 
@@ -77,6 +114,9 @@ class Lesson(Base):
     # AI Enhancement
     ai_enhanced_content = Column(JSON, default={}, nullable=True)  # AI-generated summaries, key points, etc.
 
+    # Content Data (for media files, quiz questions, etc.)
+    content_data = Column(JSON, default={}, nullable=True)
+
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
@@ -84,6 +124,7 @@ class Lesson(Base):
     # Relationships
     module = relationship("Module", back_populates="lessons")
     content_items = relationship("ContentItem", back_populates="lesson", order_by="ContentItem.sequence_order")
+    media_files = relationship("LessonMedia", back_populates="lesson", order_by="LessonMedia.sequence_order", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Lesson {self.title} (type: {self.lesson_type})>"

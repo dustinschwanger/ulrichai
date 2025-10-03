@@ -1,20 +1,21 @@
-from fastapi import APIRouter, HTTPException, Depends
+"""
+Lesson Notes API - Personal note-taking for students
+Simple and efficient note management for better learning
+"""
+
+from fastapi import APIRouter, HTTPException, Depends, status
+from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
-from uuid import uuid4
+from uuid import UUID
+
+from ...core.database import get_db
+from ..services.auth_service import get_current_user
+from ..models import LMSUser, LessonNote
 
 router = APIRouter()
-
-# In-memory storage (replace with database in production)
-NOTES = {}
-
-# Mock user for development
-MOCK_USER = {
-    "id": "user123",
-    "name": "Current User",
-    "avatar": "CU"
-}
 
 
 class NoteCreate(BaseModel):
@@ -43,145 +44,206 @@ class NoteResponse(BaseModel):
 
 
 @router.get("/lessons/{lesson_id}/notes", response_model=List[NoteResponse])
-async def get_lesson_notes(lesson_id: str):
-    """Get all notes for a specific lesson for the current user"""
-    user_notes = []
+async def get_lesson_notes(
+    lesson_id: str,
+    current_user: LMSUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all notes for a lesson.
+    Students see only their own notes for privacy.
+    Fast retrieval for smooth studying experience.
+    """
+    notes = db.query(LessonNote).filter(
+        LessonNote.lesson_id == lesson_id,
+        LessonNote.user_id == current_user.id
+    ).order_by(LessonNote.created_at.desc()).all()
 
-    for note_id, note in NOTES.items():
-        if note["lessonId"] == lesson_id and note["userId"] == MOCK_USER["id"]:
-            user_notes.append(NoteResponse(
-                id=note_id,
-                lessonId=note["lessonId"],
-                courseId=note["courseId"],
-                userId=note["userId"],
-                content=note["content"],
-                timestamp=note.get("timestamp"),
-                tags=note["tags"],
-                createdAt=note["createdAt"],
-                updatedAt=note["updatedAt"]
-            ))
-
-    # Sort by creation time (newest first)
-    user_notes.sort(key=lambda x: x.createdAt, reverse=True)
-    return user_notes
+    return [
+        NoteResponse(
+            id=str(note.id),
+            lessonId=note.lesson_id,
+            courseId=note.course_id,
+            userId=str(note.user_id),
+            content=note.content,
+            timestamp=note.timestamp,
+            tags=note.tags or [],
+            createdAt=note.created_at,
+            updatedAt=note.updated_at
+        )
+        for note in notes
+    ]
 
 
 @router.post("/lessons/{lesson_id}/notes", response_model=NoteResponse)
-async def create_note(lesson_id: str, note_data: NoteCreate):
-    """Create a new note for a lesson"""
-    note_id = f"note-{str(uuid4())[:8]}"
+async def create_note(
+    lesson_id: str,
+    note_data: NoteCreate,
+    current_user: LMSUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Create a new note for a lesson.
+    Quick and easy - capture thoughts while learning.
+    Supports timestamps for video notes.
+    """
+    note = LessonNote(
+        lesson_id=lesson_id,
+        course_id=note_data.courseId,
+        user_id=current_user.id,
+        content=note_data.content,
+        timestamp=note_data.timestamp,
+        tags=note_data.tags
+    )
 
-    note = {
-        "lessonId": lesson_id,
-        "courseId": note_data.courseId,
-        "userId": MOCK_USER["id"],
-        "content": note_data.content,
-        "timestamp": note_data.timestamp,
-        "tags": note_data.tags,
-        "createdAt": datetime.utcnow(),
-        "updatedAt": datetime.utcnow()
-    }
-
-    NOTES[note_id] = note
+    db.add(note)
+    db.commit()
+    db.refresh(note)
 
     return NoteResponse(
-        id=note_id,
-        **note
+        id=str(note.id),
+        lessonId=note.lesson_id,
+        courseId=note.course_id,
+        userId=str(note.user_id),
+        content=note.content,
+        timestamp=note.timestamp,
+        tags=note.tags or [],
+        createdAt=note.created_at,
+        updatedAt=note.updated_at
     )
 
 
 @router.put("/notes/{note_id}", response_model=NoteResponse)
-async def update_note(note_id: str, note_data: NoteUpdate):
-    """Update an existing note"""
-    if note_id not in NOTES:
+async def update_note(
+    note_id: str,
+    note_data: NoteUpdate,
+    current_user: LMSUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update your note content and tags.
+    Keep notes organized and current.
+    """
+    note = db.query(LessonNote).filter(LessonNote.id == note_id).first()
+
+    if not note:
         raise HTTPException(status_code=404, detail="Note not found")
 
-    note = NOTES[note_id]
-
-    # Verify ownership
-    if note["userId"] != MOCK_USER["id"]:
+    if note.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to update this note")
 
-    # Update note
-    note["content"] = note_data.content
-    note["tags"] = note_data.tags
-    note["updatedAt"] = datetime.utcnow()
+    note.content = note_data.content
+    note.tags = note_data.tags
+    note.updated_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(note)
 
     return NoteResponse(
-        id=note_id,
-        **note
+        id=str(note.id),
+        lessonId=note.lesson_id,
+        courseId=note.course_id,
+        userId=str(note.user_id),
+        content=note.content,
+        timestamp=note.timestamp,
+        tags=note.tags or [],
+        createdAt=note.created_at,
+        updatedAt=note.updated_at
     )
 
 
 @router.delete("/notes/{note_id}")
-async def delete_note(note_id: str):
-    """Delete a note"""
-    if note_id not in NOTES:
+async def delete_note(
+    note_id: str,
+    current_user: LMSUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a note.
+    Clean up your notes as you learn.
+    """
+    note = db.query(LessonNote).filter(LessonNote.id == note_id).first()
+
+    if not note:
         raise HTTPException(status_code=404, detail="Note not found")
 
-    note = NOTES[note_id]
-
-    # Verify ownership
-    if note["userId"] != MOCK_USER["id"]:
+    if note.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to delete this note")
 
-    del NOTES[note_id]
+    db.delete(note)
+    db.commit()
+
     return {"success": True, "message": "Note deleted successfully"}
 
 
 @router.get("/courses/{course_id}/notes", response_model=List[NoteResponse])
-async def get_course_notes(course_id: str):
-    """Get all notes for a specific course for the current user"""
-    course_notes = []
+async def get_course_notes(
+    course_id: str,
+    current_user: LMSUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all notes across all lessons in a course.
+    Review all your notes in one place for exam prep.
+    """
+    notes = db.query(LessonNote).filter(
+        LessonNote.course_id == course_id,
+        LessonNote.user_id == current_user.id
+    ).order_by(LessonNote.created_at.desc()).all()
 
-    for note_id, note in NOTES.items():
-        if note["courseId"] == course_id and note["userId"] == MOCK_USER["id"]:
-            course_notes.append(NoteResponse(
-                id=note_id,
-                lessonId=note["lessonId"],
-                courseId=note["courseId"],
-                userId=note["userId"],
-                content=note["content"],
-                timestamp=note.get("timestamp"),
-                tags=note["tags"],
-                createdAt=note["createdAt"],
-                updatedAt=note["updatedAt"]
-            ))
-
-    # Sort by creation time (newest first)
-    course_notes.sort(key=lambda x: x.createdAt, reverse=True)
-    return course_notes
+    return [
+        NoteResponse(
+            id=str(note.id),
+            lessonId=note.lesson_id,
+            courseId=note.course_id,
+            userId=str(note.user_id),
+            content=note.content,
+            timestamp=note.timestamp,
+            tags=note.tags or [],
+            createdAt=note.created_at,
+            updatedAt=note.updated_at
+        )
+        for note in notes
+    ]
 
 
-@router.get("/notes/search")
-async def search_notes(query: str, course_id: Optional[str] = None, tag: Optional[str] = None):
-    """Search notes by content, optionally filter by course or tag"""
-    results = []
+@router.get("/notes/search", response_model=List[NoteResponse])
+async def search_notes(
+    query: str,
+    course_id: Optional[str] = None,
+    tag: Optional[str] = None,
+    current_user: LMSUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Search through your notes by content or tags.
+    Find information quickly when reviewing for exams.
+    Smart search helps recall key concepts.
+    """
+    search_query = db.query(LessonNote).filter(
+        LessonNote.user_id == current_user.id,
+        LessonNote.content.ilike(f"%{query}%")
+    )
 
-    for note_id, note in NOTES.items():
-        # Only search user's own notes
-        if note["userId"] != MOCK_USER["id"]:
-            continue
+    if course_id:
+        search_query = search_query.filter(LessonNote.course_id == course_id)
 
-        # Apply filters
-        if course_id and note["courseId"] != course_id:
-            continue
+    if tag:
+        search_query = search_query.filter(LessonNote.tags.contains([tag]))
 
-        if tag and tag not in note["tags"]:
-            continue
+    notes = search_query.order_by(LessonNote.created_at.desc()).all()
 
-        # Search in content
-        if query.lower() in note["content"].lower():
-            results.append(NoteResponse(
-                id=note_id,
-                lessonId=note["lessonId"],
-                courseId=note["courseId"],
-                userId=note["userId"],
-                content=note["content"],
-                timestamp=note.get("timestamp"),
-                tags=note["tags"],
-                createdAt=note["createdAt"],
-                updatedAt=note["updatedAt"]
-            ))
-
-    return results
+    return [
+        NoteResponse(
+            id=str(note.id),
+            lessonId=note.lesson_id,
+            courseId=note.course_id,
+            userId=str(note.user_id),
+            content=note.content,
+            timestamp=note.timestamp,
+            tags=note.tags or [],
+            createdAt=note.created_at,
+            updatedAt=note.updated_at
+        )
+        for note in notes
+    ]

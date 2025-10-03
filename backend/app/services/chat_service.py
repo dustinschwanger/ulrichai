@@ -162,11 +162,13 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
                 "error": str(e)
             }
     
-    async def search_context(self, query: str, limit: int = 5) -> Dict[str, Any]:
-        """Enhanced search with sequential chunk retrieval for structured content"""
-        
+    async def search_context(self, query: str, limit: int = 5, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Enhanced search with sequential chunk retrieval for structured content and optional lesson/course filtering"""
+
         logger.info(f"Searching context for query: {query}")
-        
+        if context:
+            logger.info(f"Context provided: {context}")
+
         try:
             # Generate query embedding using OpenAI
             embedding_response = openai.embeddings.create(
@@ -176,18 +178,30 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
             )
             query_embedding = embedding_response.data[0].embedding
             logger.info(f"Generated embedding with {len(query_embedding)} dimensions")
-            
+
             # Search documents using Pinecone
             index = vector_store.index
-            
+
             # Debug: Log index stats
             index_stats = index.describe_index_stats()
             logger.info(f"Index stats: {index_stats}")
-            
+
+            # Build filter for lesson/course context if provided
+            metadata_filter = None
+            if context and context.get('type') == 'lesson':
+                # Filter by course_id to get all content from the current course
+                # This prioritizes course-specific content while still allowing general knowledge
+                if context.get('course_id'):
+                    metadata_filter = {
+                        "course_id": {"$eq": context.get('course_id')}
+                    }
+                    logger.info(f"Filtering by course_id: {context.get('course_id')}")
+
             search_results = index.query(
                 vector=query_embedding,
-                top_k=limit,
-                include_metadata=True
+                top_k=limit * 2 if metadata_filter else limit,  # Get more results when filtering
+                include_metadata=True,
+                filter=metadata_filter
             )
             
             # Debug: Log what we got back from search
@@ -237,9 +251,9 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
     
     def build_context_prompt(self, search_results: Dict[str, Any]) -> str:
         """Build context prompt using Sandusky Current's approach"""
-        
+
         context_parts = []
-        
+
         # Add relevant documents
         documents = search_results.get('documents', [])
         if documents:
@@ -248,16 +262,28 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
                 title = doc.get('title', 'Unknown Document')
                 content = doc.get('content', '')[:800]  # Increased from 500 for better context
                 page_num = doc.get('page_number', '')
-                
+                start_time = doc.get('start_time')
+                end_time = doc.get('end_time')
+                content_type = doc.get('content_type')
+
                 doc_info = f"- **{title}**"
-                if page_num:
+
+                # Add location info (page number for PDFs, timestamp for videos)
+                if content_type == 'lesson_video' and start_time is not None:
+                    # Convert seconds to MM:SS format
+                    minutes = int(start_time // 60)
+                    seconds = int(start_time % 60)
+                    timestamp = f"{minutes:02d}:{seconds:02d}"
+                    doc_info += f" (Video timestamp: {timestamp})"
+                elif page_num:
                     doc_info += f" (Page {page_num})"
+
                 doc_info += f": {content}"
-                
+
                 context_parts.append(doc_info)
-            
+
             context_parts.append("")  # Add spacing
-        
+
         return "\n".join(context_parts) if context_parts else ""
     
     async def get_graph_context(self, doc_id: str) -> List[str]:
@@ -323,15 +349,36 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
     async def process_query_stream(self, query: str, session_id: Optional[str] = None, context: Optional[Dict[str, Any]] = None):
         """Process query with streaming response, optionally with lesson context"""
         try:
-            logger.info(f"Processing streaming query: {query}")
+            logger.info(f"Processing streaming query: {query[:200]}...")
 
             # Check if this is a lesson context query
             if context and context.get('type') == 'lesson':
-                # For lesson queries, we already have context built into the query
-                # so we can skip the search and use the query directly
-                full_prompt = query  # The query already includes lesson context from frontend
+                # Extract the actual user question from the frontend's context prompt
+                user_question = query
+                if "**Student's Question:**" in query:
+                    # Extract just the question for better semantic search
+                    parts = query.split("**Student's Question:**")
+                    if len(parts) > 1:
+                        user_question = parts[1].split('\n')[0].strip()
+                        logger.info(f"Extracted user question: {user_question}")
+
+                # Search using just the user's question for better semantic matching
+                search_results = await self.search_context(user_question, limit=10, context=context)
+                context_prompt = self.build_context_prompt(search_results)
+
+                # Replace the placeholder context in the full prompt with RAG context
+                # Insert our RAG context before the student's question
+                if "**Student's Question:**" in query:
+                    parts = query.split("**Student's Question:**")
+                    full_prompt = f"""{parts[0]}
+{context_prompt}
+
+**Student's Question:** {parts[1]}"""
+                else:
+                    # Fallback if format doesn't match
+                    full_prompt = f"{query}\n\n{context_prompt}"
             else:
-                # Normal query - search for context
+                # Normal query - search for context without filtering
                 search_results = await self.search_context(query, limit=10)
                 context_prompt = self.build_context_prompt(search_results)
 

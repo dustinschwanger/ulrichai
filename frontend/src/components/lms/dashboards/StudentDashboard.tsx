@@ -17,6 +17,7 @@ import {
   ListItemAvatar,
   ListItemText,
   ListItemSecondaryAction,
+  Stack,
 } from '@mui/material';
 import {
   PlayCircleOutline,
@@ -93,7 +94,7 @@ const StudentDashboard: React.FC = () => {
   ];
 
   return (
-    <Box>
+    <Box sx={{ mx: -3, mt: -3, px: 3, pt: 3, bgcolor: 'background.default', minHeight: '100vh' }}>
       {/* Welcome Header */}
       <Box sx={{ mb: 4 }}>
         <Typography variant="h4" fontWeight="bold" gutterBottom>
@@ -106,7 +107,7 @@ const StudentDashboard: React.FC = () => {
 
       {/* Stats Overview */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} lg={3}>
           <Paper
             sx={{
               p: 3,
@@ -126,7 +127,7 @@ const StudentDashboard: React.FC = () => {
           </Paper>
         </Grid>
 
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} lg={3}>
           <Paper
             sx={{
               p: 3,
@@ -146,7 +147,7 @@ const StudentDashboard: React.FC = () => {
           </Paper>
         </Grid>
 
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} lg={3}>
           <Paper
             sx={{
               p: 3,
@@ -160,13 +161,13 @@ const StudentDashboard: React.FC = () => {
                 <Typography variant="h4" fontWeight="bold">
                   85%
                 </Typography>
-                <Typography variant="body2">Avg. Score</Typography>
+                <Typography variant="body2">Average Score</Typography>
               </Box>
             </Box>
           </Paper>
         </Grid>
 
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} lg={3}>
           <Paper
             sx={{
               p: 3,
@@ -187,9 +188,11 @@ const StudentDashboard: React.FC = () => {
         </Grid>
       </Grid>
 
+      {/* Main Content - Two Column Layout */}
       <Grid container spacing={3}>
-        {/* Current Courses */}
-        <Grid item xs={12} md={8}>
+        {/* Left Column - 75% width */}
+        <Grid item xs={12} lg={9}>
+          {/* Current Courses */}
           <Card>
             <CardContent>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
@@ -209,8 +212,8 @@ const StudentDashboard: React.FC = () => {
                 <Typography>Loading courses...</Typography>
               ) : enrollments && enrollments.length > 0 ? (
                 <Grid container spacing={2}>
-                  {enrollments.slice(0, 2).map((enrollment, index) => (
-                    <Grid item xs={12} key={enrollment.id}>
+                  {enrollments.slice(0, 6).map((enrollment, index) => (
+                    <Grid item xs={12} md={6} xl={4} key={enrollment.id}>
                       <Card variant="outlined">
                         <CardContent>
                           <Box sx={{ display: 'flex', gap: 2 }}>
@@ -304,10 +307,58 @@ const StudentDashboard: React.FC = () => {
               </List>
             </CardContent>
           </Card>
+
+          {/* Achievements */}
+          <Card sx={{ mt: 3 }}>
+            <CardContent>
+              <Typography variant="h6" fontWeight="bold" gutterBottom>
+                Achievements
+              </Typography>
+              <Grid container spacing={2}>
+                {achievements.map((achievement) => (
+                  <Grid item xs={12} sm={6} lg={4} key={achievement.id}>
+                    <Card variant="outlined" sx={{ height: '100%' }}>
+                      <CardContent>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                          <Avatar
+                            sx={{
+                              bgcolor: achievement.earned ? 'success.main' : 'grey.400',
+                              width: 48,
+                              height: 48,
+                            }}
+                          >
+                            <EmojiEvents />
+                          </Avatar>
+                          <Box>
+                            <Typography
+                              variant="subtitle1"
+                              fontWeight="bold"
+                              color={achievement.earned ? 'text.primary' : 'text.disabled'}
+                            >
+                              {achievement.title}
+                            </Typography>
+                            <Typography
+                              variant="body2"
+                              color={achievement.earned ? 'text.secondary' : 'text.disabled'}
+                            >
+                              {achievement.description}
+                            </Typography>
+                            {achievement.earned && (
+                              <Chip label="Earned" size="small" color="success" sx={{ mt: 1 }} />
+                            )}
+                          </Box>
+                        </Box>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+            </CardContent>
+          </Card>
         </Grid>
 
-        {/* Right Sidebar */}
-        <Grid item xs={12} md={4}>
+        {/* Right Column - 25% width */}
+        <Grid item xs={12} lg={3}>
           {/* Upcoming Deadlines */}
           <Card>
             <CardContent>
@@ -346,39 +397,38 @@ const StudentDashboard: React.FC = () => {
             </CardContent>
           </Card>
 
-          {/* Achievements */}
+          {/* Quick Links */}
           <Card sx={{ mt: 3 }}>
             <CardContent>
               <Typography variant="h6" fontWeight="bold" gutterBottom>
-                Achievements
+                Quick Links
               </Typography>
-              <List>
-                {achievements.map((achievement) => (
-                  <ListItem key={achievement.id} sx={{ px: 0 }}>
-                    <ListItemAvatar>
-                      <Avatar
-                        sx={{
-                          bgcolor: achievement.earned ? 'success.main' : 'grey.400',
-                        }}
-                      >
-                        <EmojiEvents />
-                      </Avatar>
-                    </ListItemAvatar>
-                    <ListItemText
-                      primary={achievement.title}
-                      secondary={achievement.description}
-                      sx={{
-                        '& .MuiListItemText-primary': {
-                          color: achievement.earned ? 'text.primary' : 'text.disabled',
-                        },
-                        '& .MuiListItemText-secondary': {
-                          color: achievement.earned ? 'text.secondary' : 'text.disabled',
-                        },
-                      }}
-                    />
-                  </ListItem>
-                ))}
-              </List>
+              <Stack spacing={1}>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  startIcon={<Book />}
+                  onClick={() => navigate('/lms/resources')}
+                >
+                  Resources
+                </Button>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  startIcon={<Quiz />}
+                  onClick={() => navigate('/lms/quizzes')}
+                >
+                  Practice Tests
+                </Button>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  startIcon={<CalendarToday />}
+                  onClick={() => navigate('/lms/calendar')}
+                >
+                  Calendar
+                </Button>
+              </Stack>
             </CardContent>
           </Card>
         </Grid>

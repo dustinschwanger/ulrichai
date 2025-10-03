@@ -384,18 +384,21 @@ async def get_current_user(
 
 
 # Dependency to require specific role
-def require_role(role: UserRole):
+def require_role(roles: list[str]):
     """Factory function to create role-checking dependencies."""
 
     async def role_checker(
-        current_user: LMSUser = Depends(get_current_user)
+        current_user: LMSUser = Depends(get_current_user),
+        db: Session = Depends(get_db)
     ) -> LMSUser:
-        auth_service = AuthService(current_user.db_session)  # Note: We'd need to pass session
+        # Normalize user role to uppercase for comparison
+        user_role = current_user.role.upper() if isinstance(current_user.role, str) else current_user.role.value
 
-        if not auth_service.check_permission(current_user, role):
+        # Check if user's role is in the allowed roles
+        if user_role not in roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Insufficient permissions. Required role: {role.value}"
+                detail=f"Insufficient permissions. Required role: {', '.join(roles)}"
             )
 
         return current_user

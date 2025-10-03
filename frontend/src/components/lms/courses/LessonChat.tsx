@@ -35,6 +35,8 @@ interface LessonChatProps {
   moduleTitle?: string;
   learningObjectives?: string[];
   currentContent?: string;
+  courseId?: string;
+  lessonId?: string;
 }
 
 interface Message {
@@ -52,6 +54,8 @@ const LessonChat: React.FC<LessonChatProps> = ({
   moduleTitle,
   learningObjectives = [],
   currentContent = '',
+  courseId,
+  lessonId,
 }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -239,6 +243,8 @@ Remember you are a tutor for this specific lesson, so keep your responses releva
             course: courseTitle,
             lesson: lessonTitle,
             module: moduleTitle,
+            course_id: courseId,
+            lesson_id: lessonId,
           }
         }),
       });

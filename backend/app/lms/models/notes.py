@@ -13,12 +13,11 @@ class LessonNote(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     lesson_id = Column(String, nullable=False)
     course_id = Column(String, nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey('lms_users.id'), nullable=False)
     content = Column(Text, nullable=False)
     timestamp = Column(String, nullable=True)  # Video timestamp like "5:30"
     tags = Column(JSON, default=list)  # Array of tag strings
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Relationships
-    user = relationship("User", back_populates="notes")
+    user = relationship("LMSUser")

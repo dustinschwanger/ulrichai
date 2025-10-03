@@ -95,11 +95,22 @@ class CourseVersion(Base):
     # Content (can override course-level fields)
     title = Column(String(500), nullable=False)
     description = Column(Text, nullable=True)
+    thumbnail_url = Column(Text, nullable=True)
+
+    # Course Details (moved from Course to allow version-specific settings)
+    duration_hours = Column(Numeric(5, 2), nullable=True)
+    difficulty_level = Column(String(50), default="beginner")
+    prerequisites = Column(ARRAY(Text), default=[], nullable=False)
+    learning_outcomes = Column(ARRAY(Text), default=[], nullable=False)
 
     # Version Details
     change_notes = Column(Text, nullable=True)
-    is_active = Column(Boolean, default=False)  # Currently active version
+    is_active = Column(Boolean, default=False)  # Multiple versions can be active
     is_draft = Column(Boolean, default=True)    # Draft vs. published version
+    is_published = Column(Boolean, default=False)
+
+    # Settings
+    settings = Column(JSON, default={}, nullable=False)
 
     # AI Generation Tracking
     is_ai_generated = Column(Boolean, default=False)
@@ -110,12 +121,14 @@ class CourseVersion(Base):
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
     published_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     course = relationship("Course", back_populates="versions")
     creator = relationship("LMSUser", backref="course_versions_created")
-    modules = relationship("Module", back_populates="course_version", order_by="Module.sequence_order")
+    sections = relationship("Section", back_populates="course_version", order_by="Section.sequence_order", cascade="all, delete-orphan")
+    modules = relationship("Module", back_populates="course_version", order_by="Module.sequence_order", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<CourseVersion {self.course_id} v{self.version_number}>"

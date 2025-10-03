@@ -36,7 +36,6 @@ import {
   Notifications,
   AccountCircle,
   VideoLibrary,
-  Create,
   SmartToy,
 } from '@mui/icons-material';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
@@ -104,16 +103,13 @@ const LMSLayout: React.FC = () => {
     { text: 'AI Assistant', icon: <SmartToy />, path: '/lms/ai-assistant' },
   ];
 
-  const instructorNavItems = [
-    { text: 'Course Management', icon: <VideoLibrary />, path: '/lms/instructor/courses' },
-    { text: 'Create Course', icon: <Create />, path: '/lms/instructor/create-course' },
-    { text: 'Students', icon: <People />, path: '/lms/instructor/students' },
-    { text: 'Analytics', icon: <Analytics />, path: '/lms/instructor/analytics' },
-  ];
-
+  // Admin navigation items (instructors and admins will both see these)
   const adminNavItems = [
+    { text: 'Admin Dashboard', icon: <Dashboard />, path: '/lms/admin' },
+    { text: 'Course Management', icon: <VideoLibrary />, path: '/lms/admin/courses' },
     { text: 'Organizations', icon: <People />, path: '/lms/admin/organizations' },
     { text: 'User Management', icon: <People />, path: '/lms/admin/users' },
+    { text: 'Students', icon: <School />, path: '/lms/admin/students' },
     { text: 'Platform Analytics', icon: <Analytics />, path: '/lms/admin/analytics' },
     { text: 'Settings', icon: <Settings />, path: '/lms/admin/settings' },
   ];
@@ -162,47 +158,8 @@ const LMSLayout: React.FC = () => {
           ))}
         </List>
 
-        {/* Instructor Section */}
-        {isInstructor && (
-          <>
-            <Divider sx={{ mx: 2, my: 1 }} />
-            <List>
-              <ListItemButton
-                onClick={() => setInstructorMenuOpen(!instructorMenuOpen)}
-                sx={{ px: 4 }}
-              >
-                <ListItemText primary="Instructor Tools" primaryTypographyProps={{ fontWeight: 600 }} />
-                {instructorMenuOpen ? <ExpandLess /> : <ExpandMore />}
-              </ListItemButton>
-              <Collapse in={instructorMenuOpen} timeout="auto" unmountOnExit>
-                {instructorNavItems.map((item) => (
-                  <ListItem key={item.text} disablePadding sx={{ pl: 4, pr: 2 }}>
-                    <ListItemButton
-                      selected={location.pathname === item.path}
-                      onClick={() => handleNavigation(item.path)}
-                      sx={{
-                        borderRadius: 2,
-                        mb: 0.5,
-                        '&.Mui-selected': {
-                          backgroundColor: 'primary.light',
-                          '& .MuiListItemIcon-root': {
-                            color: 'primary.main',
-                          },
-                        },
-                      }}
-                    >
-                      <ListItemIcon>{item.icon}</ListItemIcon>
-                      <ListItemText primary={item.text} />
-                    </ListItemButton>
-                  </ListItem>
-                ))}
-              </Collapse>
-            </List>
-          </>
-        )}
-
-        {/* Admin Section */}
-        {isAdmin && (
+        {/* Admin Section - Show for both instructors and admins */}
+        {(isInstructor || isAdmin) && (
           <>
             <Divider sx={{ mx: 2, my: 1 }} />
             <List>

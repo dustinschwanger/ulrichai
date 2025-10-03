@@ -57,9 +57,10 @@ import {
   CheckCircle,
   NavigateNext,
 } from '@mui/icons-material';
-import { useGetCourseQuery, useEnrollInCourseMutation } from '../../../store/api/courseApi';
+import { useGetCourseQuery } from '../../../features/lms/courseBuilderSlice';
+import { useEnrollInCourseMutation } from '../../../store/api/courseApi';
 import { useAppSelector } from '../../../store/hooks';
-import { selectCurrentUser } from '../../../store/slices/authSlice';
+import { selectCurrentUser, selectIsAdmin, selectIsInstructor } from '../../../store/slices/authSlice';
 import toast from 'react-hot-toast';
 
 interface TabPanelProps {
@@ -87,6 +88,8 @@ const CourseDetail: React.FC = () => {
   const { courseId } = useParams<{ courseId: string }>();
   const navigate = useNavigate();
   const currentUser = useAppSelector(selectCurrentUser);
+  const isAdmin = useAppSelector(selectIsAdmin);
+  const isInstructor = useAppSelector(selectIsInstructor);
   const [tabValue, setTabValue] = useState(0);
   const [expandedModules, setExpandedModules] = useState<string[]>([]);
   const [isBookmarked, setIsBookmarked] = useState(false);
@@ -106,6 +109,11 @@ const CourseDetail: React.FC = () => {
     } catch (error) {
       toast.error('Failed to enroll in course');
     }
+  };
+
+  const handleViewCourse = () => {
+    // Navigate to course viewer directly without enrollment for admins/instructors
+    navigate(`/lms/course/${courseId}/learn`);
   };
 
   const handleModuleToggle = (moduleId: string) => {
@@ -640,20 +648,50 @@ const CourseDetail: React.FC = () => {
                   )}
                 </Box>
 
-                <Button
-                  fullWidth
-                  variant="contained"
-                  size="large"
-                  onClick={handleEnroll}
-                  disabled={isEnrolling}
-                  sx={{
-                    py: 1.5,
-                    mb: 2,
-                    background: 'linear-gradient(45deg, #667eea 30%, #764ba2 90%)',
-                  }}
-                >
-                  {isEnrolling ? 'Enrolling...' : 'Enroll Now'}
-                </Button>
+                {/* Show different buttons based on user role */}
+                {isAdmin || isInstructor ? (
+                  <>
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      size="large"
+                      onClick={handleViewCourse}
+                      sx={{
+                        py: 1.5,
+                        mb: 1,
+                        background: 'linear-gradient(45deg, #667eea 30%, #764ba2 90%)',
+                      }}
+                      startIcon={<PlayArrow />}
+                    >
+                      View Course (Admin Access)
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      size="large"
+                      onClick={handleEnroll}
+                      disabled={isEnrolling}
+                      sx={{ mb: 2 }}
+                    >
+                      {isEnrolling ? 'Enrolling...' : 'Enroll as Student'}
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    fullWidth
+                    variant="contained"
+                    size="large"
+                    onClick={handleEnroll}
+                    disabled={isEnrolling}
+                    sx={{
+                      py: 1.5,
+                      mb: 2,
+                      background: 'linear-gradient(45deg, #667eea 30%, #764ba2 90%)',
+                    }}
+                  >
+                    {isEnrolling ? 'Enrolling...' : 'Enroll Now'}
+                  </Button>
+                )}
 
                 <Stack direction="row" spacing={1} sx={{ mb: 3 }}>
                   <Button

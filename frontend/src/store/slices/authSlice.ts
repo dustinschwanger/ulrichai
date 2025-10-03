@@ -92,7 +92,10 @@ export const selectIsInstructor = (state: RootState) =>
   state.auth.user?.role === 'super_admin';
 export const selectIsAdmin = (state: RootState) =>
   state.auth.user?.role === 'admin' ||
-  state.auth.user?.role === 'super_admin';
+  state.auth.user?.role === 'ADMIN' ||
+  state.auth.user?.role === 'super_admin' ||
+  state.auth.user?.role === 'INSTRUCTOR' ||
+  state.auth.user?.role === 'instructor'; // Temporarily allow instructor to see admin
 export const selectIsSuperAdmin = (state: RootState) => state.auth.user?.role === 'super_admin';
 
 export default authSlice.reducer;

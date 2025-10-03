@@ -2,25 +2,15 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
-from uuid import uuid4
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import desc, func
+
+from ...core.database import get_db
+from ..services.auth_service import get_current_user
+from ..models import LMSUser
+from ..models.qa import LessonQuestion, QuestionAnswer, question_upvotes, answer_upvotes
 
 router = APIRouter()
-
-# In-memory storage (replace with database in production)
-QUESTIONS = {}
-ANSWERS = {}
-UPVOTES = {
-    "questions": {},
-    "answers": {}
-}
-
-# Mock user for development
-MOCK_USER = {
-    "id": "user123",
-    "name": "Current User",
-    "avatar": "CU",
-    "isInstructor": False
-}
 
 
 class QuestionCreate(BaseModel):
@@ -67,76 +57,130 @@ class AnswerResponse(BaseModel):
 QuestionResponse.model_rebuild()
 
 
+def _user_avatar(user: LMSUser) -> str:
+    """Generate user avatar from user name"""
+    if user.first_name and user.last_name:
+        return f"{user.first_name[0].upper()}{user.last_name[0].upper()}"
+    elif user.email:
+        return user.email[:2].upper()
+    return "U"
+
+
+def _user_name(user: LMSUser) -> str:
+    """Generate display name for user"""
+    if user.first_name and user.last_name:
+        return f"{user.first_name} {user.last_name}"
+    return user.email
+
+
 @router.get("/lessons/{lesson_id}/questions", response_model=List[QuestionResponse])
-async def get_lesson_questions(lesson_id: str):
-    """Get all questions for a specific lesson"""
-    lesson_questions = []
+async def get_lesson_questions(
+    lesson_id: str,
+    current_user: LMSUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all questions for a lesson to help students learn and get help.
+    See what other learners have asked and find answers to common questions.
+    """
+    # Get questions with their authors and answers
+    questions = db.query(LessonQuestion)\
+        .options(
+            joinedload(LessonQuestion.user),
+            joinedload(LessonQuestion.answers).joinedload(QuestionAnswer.user),
+            joinedload(LessonQuestion.upvoters)
+        )\
+        .filter(LessonQuestion.lesson_id == lesson_id)\
+        .order_by(desc(LessonQuestion.created_at))\
+        .all()
 
-    for q_id, question in QUESTIONS.items():
-        if question["lessonId"] == lesson_id:
-            # Get answers for this question
-            question_answers = []
-            for a_id, answer in ANSWERS.items():
-                if answer["questionId"] == q_id:
-                    answer_upvotes = UPVOTES["answers"].get(a_id, [])
-                    question_answers.append(AnswerResponse(
-                        id=a_id,
-                        userId=answer["userId"],
-                        userName=answer["userName"],
-                        userAvatar=answer["userAvatar"],
-                        answer=answer["answer"],
-                        timestamp=answer["timestamp"],
-                        upvotes=len(answer_upvotes),
-                        hasUpvoted=MOCK_USER["id"] in answer_upvotes,
-                        isInstructor=answer.get("isInstructor", False),
-                        isAccepted=answer.get("isAccepted", False)
-                    ))
+    result = []
+    for question in questions:
+        # Count upvotes and check if current user has upvoted
+        question_upvote_count = len(question.upvoters)
+        has_upvoted_question = current_user in question.upvoters
 
-            # Get question upvotes
-            question_upvotes = UPVOTES["questions"].get(q_id, [])
+        # Process answers
+        question_answers = []
+        for answer in question.answers:
+            answer_upvote_count = len(answer.upvoters)
+            has_upvoted_answer = current_user in answer.upvoters
 
-            lesson_questions.append(QuestionResponse(
-                id=q_id,
-                lessonId=question["lessonId"],
-                courseId=question["courseId"],
-                userId=question["userId"],
-                userName=question["userName"],
-                userAvatar=question["userAvatar"],
-                question=question["question"],
-                details=question.get("details"),
-                timestamp=question["timestamp"],
-                upvotes=len(question_upvotes),
-                hasUpvoted=MOCK_USER["id"] in question_upvotes,
-                answers=question_answers
+            question_answers.append(AnswerResponse(
+                id=str(answer.id),
+                userId=str(answer.user_id),
+                userName=_user_name(answer.user),
+                userAvatar=_user_avatar(answer.user),
+                answer=answer.answer,
+                timestamp=answer.created_at,
+                upvotes=answer_upvote_count,
+                hasUpvoted=has_upvoted_answer,
+                isInstructor=answer.is_instructor,
+                isAccepted=answer.is_accepted
             ))
 
-    # Sort by timestamp (newest first)
-    lesson_questions.sort(key=lambda x: x.timestamp, reverse=True)
-    return lesson_questions
+        # Sort answers: instructor answers first, then by accepted status and upvotes
+        question_answers.sort(key=lambda x: (
+            not x.isInstructor,  # Instructor answers first
+            not x.isAccepted,    # Accepted answers next
+            -x.upvotes           # Then by upvotes (descending)
+        ))
+
+        result.append(QuestionResponse(
+            id=str(question.id),
+            lessonId=question.lesson_id,
+            courseId=question.course_id,
+            userId=str(question.user_id),
+            userName=_user_name(question.user),
+            userAvatar=_user_avatar(question.user),
+            question=question.question,
+            details=question.details,
+            timestamp=question.created_at,
+            upvotes=question_upvote_count,
+            hasUpvoted=has_upvoted_question,
+            answers=question_answers
+        ))
+
+    return result
 
 
 @router.post("/lessons/{lesson_id}/questions", response_model=QuestionResponse)
-async def create_question(lesson_id: str, question_data: QuestionCreate):
-    """Create a new question for a lesson"""
-    question_id = f"q-{str(uuid4())[:8]}"
+async def create_question(
+    lesson_id: str,
+    question_data: QuestionCreate,
+    current_user: LMSUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Ask a question about the lesson content to get help from peers and instructors.
+    Don't hesitate to ask - other students often have the same questions!
+    """
+    # Create new question
+    new_question = LessonQuestion(
+        lesson_id=lesson_id,
+        course_id=question_data.courseId,
+        user_id=current_user.id,
+        question=question_data.question,
+        details=question_data.details
+    )
 
-    question = {
-        "lessonId": lesson_id,
-        "courseId": question_data.courseId,
-        "userId": MOCK_USER["id"],
-        "userName": MOCK_USER["name"],
-        "userAvatar": MOCK_USER["avatar"],
-        "question": question_data.question,
-        "details": question_data.details,
-        "timestamp": datetime.utcnow()
-    }
+    db.add(new_question)
+    db.commit()
+    db.refresh(new_question)
 
-    QUESTIONS[question_id] = question
-    UPVOTES["questions"][question_id] = []
+    # Load the user relationship
+    db.refresh(new_question, ['user'])
 
     return QuestionResponse(
-        id=question_id,
-        **question,
+        id=str(new_question.id),
+        lessonId=new_question.lesson_id,
+        courseId=new_question.course_id,
+        userId=str(new_question.user_id),
+        userName=_user_name(new_question.user),
+        userAvatar=_user_avatar(new_question.user),
+        question=new_question.question,
+        details=new_question.details,
+        timestamp=new_question.created_at,
         upvotes=0,
         hasUpvoted=False,
         answers=[]
@@ -144,114 +188,192 @@ async def create_question(lesson_id: str, question_data: QuestionCreate):
 
 
 @router.post("/questions/{question_id}/answers", response_model=AnswerResponse)
-async def create_answer(question_id: str, answer_data: AnswerCreate):
-    """Create an answer for a question"""
-    if question_id not in QUESTIONS:
+async def create_answer(
+    question_id: str,
+    answer_data: AnswerCreate,
+    current_user: LMSUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Help a fellow learner by providing an answer to their question.
+    Share your knowledge and contribute to the learning community!
+    """
+    # Verify question exists
+    question = db.query(LessonQuestion).filter(LessonQuestion.id == question_id).first()
+    if not question:
         raise HTTPException(status_code=404, detail="Question not found")
 
-    answer_id = f"a-{str(uuid4())[:8]}"
+    # Determine if user is instructor
+    is_instructor = current_user.role.value in ['instructor', 'admin', 'super_admin']
 
-    answer = {
-        "questionId": question_id,
-        "userId": MOCK_USER["id"],
-        "userName": MOCK_USER["name"],
-        "userAvatar": MOCK_USER["avatar"],
-        "answer": answer_data.answer,
-        "timestamp": datetime.utcnow(),
-        "isInstructor": MOCK_USER.get("isInstructor", False),
-        "isAccepted": False
-    }
+    # Create new answer
+    new_answer = QuestionAnswer(
+        question_id=question.id,
+        user_id=current_user.id,
+        answer=answer_data.answer,
+        is_instructor=is_instructor
+    )
 
-    ANSWERS[answer_id] = answer
-    UPVOTES["answers"][answer_id] = []
+    db.add(new_answer)
+    db.commit()
+    db.refresh(new_answer)
+
+    # Load the user relationship
+    db.refresh(new_answer, ['user'])
 
     return AnswerResponse(
-        id=answer_id,
-        userId=answer["userId"],
-        userName=answer["userName"],
-        userAvatar=answer["userAvatar"],
-        answer=answer["answer"],
-        timestamp=answer["timestamp"],
+        id=str(new_answer.id),
+        userId=str(new_answer.user_id),
+        userName=_user_name(new_answer.user),
+        userAvatar=_user_avatar(new_answer.user),
+        answer=new_answer.answer,
+        timestamp=new_answer.created_at,
         upvotes=0,
         hasUpvoted=False,
-        isInstructor=answer["isInstructor"],
-        isAccepted=answer["isAccepted"]
+        isInstructor=new_answer.is_instructor,
+        isAccepted=new_answer.is_accepted
     )
 
 
 @router.post("/questions/{question_id}/upvote")
-async def upvote_question(question_id: str):
-    """Toggle upvote on a question"""
-    if question_id not in QUESTIONS:
+async def upvote_question(
+    question_id: str,
+    current_user: LMSUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Upvote a helpful question to help other students find important discussions.
+    Your votes help highlight the most valuable learning conversations.
+    """
+    # Verify question exists
+    question = db.query(LessonQuestion).filter(LessonQuestion.id == question_id).first()
+    if not question:
         raise HTTPException(status_code=404, detail="Question not found")
 
-    if question_id not in UPVOTES["questions"]:
-        UPVOTES["questions"][question_id] = []
+    # Check if user has already upvoted
+    existing_upvote = db.query(question_upvotes)\
+        .filter(question_upvotes.c.user_id == current_user.id)\
+        .filter(question_upvotes.c.question_id == question.id)\
+        .first()
 
-    upvotes = UPVOTES["questions"][question_id]
-    user_id = MOCK_USER["id"]
-
-    if user_id in upvotes:
-        upvotes.remove(user_id)
+    if existing_upvote:
+        # Remove upvote
+        db.execute(
+            question_upvotes.delete().where(
+                (question_upvotes.c.user_id == current_user.id) &
+                (question_upvotes.c.question_id == question.id)
+            )
+        )
         action = "removed"
     else:
-        upvotes.append(user_id)
+        # Add upvote
+        db.execute(
+            question_upvotes.insert().values(
+                user_id=current_user.id,
+                question_id=question.id
+            )
+        )
         action = "added"
+
+    db.commit()
+
+    # Get updated upvote count
+    upvote_count = db.query(func.count(question_upvotes.c.user_id))\
+        .filter(question_upvotes.c.question_id == question.id)\
+        .scalar()
 
     return {
         "success": True,
         "action": action,
-        "upvotes": len(upvotes)
+        "upvotes": upvote_count
     }
 
 
 @router.post("/answers/{answer_id}/upvote")
-async def upvote_answer(answer_id: str):
-    """Toggle upvote on an answer"""
-    if answer_id not in ANSWERS:
+async def upvote_answer(
+    answer_id: str,
+    current_user: LMSUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Upvote helpful answers to highlight the most valuable responses.
+    Your votes help other students find the best explanations and solutions.
+    """
+    # Verify answer exists
+    answer = db.query(QuestionAnswer).filter(QuestionAnswer.id == answer_id).first()
+    if not answer:
         raise HTTPException(status_code=404, detail="Answer not found")
 
-    if answer_id not in UPVOTES["answers"]:
-        UPVOTES["answers"][answer_id] = []
+    # Check if user has already upvoted
+    existing_upvote = db.query(answer_upvotes)\
+        .filter(answer_upvotes.c.user_id == current_user.id)\
+        .filter(answer_upvotes.c.answer_id == answer.id)\
+        .first()
 
-    upvotes = UPVOTES["answers"][answer_id]
-    user_id = MOCK_USER["id"]
-
-    if user_id in upvotes:
-        upvotes.remove(user_id)
+    if existing_upvote:
+        # Remove upvote
+        db.execute(
+            answer_upvotes.delete().where(
+                (answer_upvotes.c.user_id == current_user.id) &
+                (answer_upvotes.c.answer_id == answer.id)
+            )
+        )
         action = "removed"
     else:
-        upvotes.append(user_id)
+        # Add upvote
+        db.execute(
+            answer_upvotes.insert().values(
+                user_id=current_user.id,
+                answer_id=answer.id
+            )
+        )
         action = "added"
+
+    db.commit()
+
+    # Get updated upvote count
+    upvote_count = db.query(func.count(answer_upvotes.c.user_id))\
+        .filter(answer_upvotes.c.answer_id == answer.id)\
+        .scalar()
 
     return {
         "success": True,
         "action": action,
-        "upvotes": len(upvotes)
+        "upvotes": upvote_count
     }
 
 
 @router.put("/answers/{answer_id}/accept")
-async def accept_answer(answer_id: str):
-    """Mark an answer as accepted (only question author can do this)"""
-    if answer_id not in ANSWERS:
+async def accept_answer(
+    answer_id: str,
+    current_user: LMSUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Mark an answer as the accepted solution to help other students find the best response.
+    Only the person who asked the question can accept answers.
+    """
+    # Get the answer and its question
+    answer = db.query(QuestionAnswer)\
+        .options(joinedload(QuestionAnswer.question))\
+        .filter(QuestionAnswer.id == answer_id)\
+        .first()
+
+    if not answer:
         raise HTTPException(status_code=404, detail="Answer not found")
 
-    answer = ANSWERS[answer_id]
-    question = QUESTIONS.get(answer["questionId"])
+    # Check if current user is the question author
+    if answer.question.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the question author can accept answers")
 
-    if not question:
-        raise HTTPException(status_code=404, detail="Question not found")
-
-    # In production, check if current user is the question author
-    # For now, allow any user to accept
-
-    # Remove accepted status from other answers
-    for a_id, a in ANSWERS.items():
-        if a["questionId"] == answer["questionId"]:
-            a["isAccepted"] = False
+    # Remove accepted status from other answers for this question
+    db.query(QuestionAnswer)\
+        .filter(QuestionAnswer.question_id == answer.question_id)\
+        .update({"is_accepted": False})
 
     # Mark this answer as accepted
-    ANSWERS[answer_id]["isAccepted"] = True
+    answer.is_accepted = True
 
-    return {"success": True, "message": "Answer accepted"}
+    db.commit()
+
+    return {"success": True, "message": "Answer accepted successfully"}
