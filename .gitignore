@@ -1,6 +1,11 @@
-# Environment variables
+# Environment variables (NEVER commit these!)
 .env
 .env.local
+.env.production
+.env.development
+*.env
+!.env.example
+!.env.template
 
 # Python
 __pycache__/
@@ -36,7 +41,31 @@ temp/
 *.db
 *.sqlite3
 
-# Node (for frontend later)
+# Node
 node_modules/
 dist/
 build/
+
+# Development scripts (don't deploy to production)
+backend/scripts/test_*.py
+backend/scripts/debug_*.py
+
+# Docker
+docker-compose.override.yml
+
+# Production builds
+*.tar.gz
+*.zip
+
+# Secrets and credentials
+*.pem
+*.key
+*.crt
+credentials.json
+secrets/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+.cache/

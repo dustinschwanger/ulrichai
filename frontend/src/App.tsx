@@ -1,27 +1,47 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { ThemeProvider, CssBaseline } from '@mui/material';
+import { ThemeProvider, CssBaseline, CircularProgress, Box } from '@mui/material';
 import { Toaster } from 'react-hot-toast';
-import Layout from './components/Layout';
-import Chat from './components/Chat';
-import Admin from './components/Admin';
-import Login from './components/auth/Login';
-import Register from './components/auth/Register';
 import AuthCheck from './components/auth/AuthCheck';
 import ProtectedRoute from './components/auth/ProtectedRoute';
-import LMSLayout from './components/lms/LMSLayout';
-import StudentDashboard from './components/lms/dashboards/StudentDashboard';
-import CourseCatalog from './components/lms/courses/CourseCatalog';
-import CourseDetail from './components/lms/courses/CourseDetail';
-import MyCourses from './components/lms/courses/MyCourses';
-import CourseViewer from './components/lms/courses/CourseViewer';
-import CoursePreview from './components/lms/CoursePreview';
-import InstructorDashboard from './components/lms/instructor/InstructorDashboard';
-import { CourseBuilder, CourseEditor } from './components/lms/instructor/CourseBuilder';
-import AdminDashboard from './components/lms/admin/AdminDashboard';
-import CourseVersions from './components/lms/admin/CourseVersions';
 import { theme, darkTheme } from './styles/theme';
 import './App.css';
+
+// Eager load critical components
+import Login from './components/auth/Login';
+import Register from './components/auth/Register';
+
+// Lazy load other components for code splitting
+const Layout = lazy(() => import('./components/Layout'));
+const Chat = lazy(() => import('./components/Chat'));
+const Admin = lazy(() => import('./components/Admin'));
+const LMSLayout = lazy(() => import('./components/lms/LMSLayout'));
+const StudentDashboard = lazy(() => import('./components/lms/dashboards/StudentDashboard'));
+const CourseCatalog = lazy(() => import('./components/lms/courses/CourseCatalog'));
+const CourseDetail = lazy(() => import('./components/lms/courses/CourseDetail'));
+const MyCourses = lazy(() => import('./components/lms/courses/MyCourses'));
+const CourseViewer = lazy(() => import('./components/lms/courses/CourseViewer'));
+const CoursePreview = lazy(() => import('./components/lms/CoursePreview'));
+const InstructorDashboard = lazy(() => import('./components/lms/instructor/InstructorDashboard'));
+const CourseBuilder = lazy(() => import('./components/lms/instructor/CourseBuilder/CourseBuilder'));
+const CourseEditor = lazy(() => import('./components/lms/instructor/CourseBuilder/CourseEditor'));
+const AdminDashboard = lazy(() => import('./components/lms/admin/AdminDashboard'));
+const CourseVersions = lazy(() => import('./components/lms/admin/CourseVersions'));
+
+// Loading fallback component
+const LoadingFallback = () => (
+  <Box
+    sx={{
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      height: '100vh',
+      width: '100%',
+    }}
+  >
+    <CircularProgress size={60} />
+  </Box>
+);
 
 function App() {
   // Theme state - can be controlled by user preference later
@@ -38,7 +58,8 @@ function App() {
       <CssBaseline />
       <AuthCheck>
         <Router>
-          <Routes>
+          <Suspense fallback={<LoadingFallback />}>
+            <Routes>
             {/* Root redirects to LMS */}
             <Route path="/" element={<Navigate to="/lms" replace />} />
 
@@ -96,6 +117,7 @@ function App() {
               </Route>
             </Route>
           </Routes>
+          </Suspense>
         </Router>
       </AuthCheck>
       <Toaster

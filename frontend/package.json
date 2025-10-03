@@ -48,9 +48,9 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
-    "dev": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
+    "dev": "craco start",
+    "build": "NODE_OPTIONS=--max-old-space-size=8192 craco build",
+    "test": "craco test",
     "eject": "react-scripts eject",
     "serve": "node serve.js",
     "start": "node serve.js"
@@ -74,6 +74,8 @@
     ]
   },
   "devDependencies": {
-    "@types/react-router-dom": "^5.3.3"
+    "@craco/craco": "^7.1.0",
+    "@types/react-router-dom": "^5.3.3",
+    "craco-esbuild": "^0.6.1"
   }
 }
