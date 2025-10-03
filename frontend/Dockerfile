@@ -12,10 +12,17 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install all dependencies (including devDependencies needed for build)
-RUN npm ci
+# Force fresh install to bust cache
+RUN npm ci --prefer-offline=false
+
+# Clear npm cache to ensure fresh build
+RUN npm cache clean --force
 
 # Copy source code
 COPY . .
+
+# Remove any existing build directory
+RUN rm -rf build
 
 # Build argument for API URL
 ARG REACT_APP_API_URL
@@ -23,7 +30,7 @@ ENV REACT_APP_API_URL=$REACT_APP_API_URL
 ENV REACT_APP_ENVIRONMENT=production
 ENV NODE_OPTIONS="--max-old-space-size=8192"
 
-# Build the application
+# Build the application fresh
 RUN npm run build
 
 # Stage 2: Production
