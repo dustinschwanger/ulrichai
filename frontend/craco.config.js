@@ -5,6 +5,8 @@ module.exports = {
     {
       plugin: CracoEsbuildPlugin,
       options: {
+        // Only use esbuild for development, not production
+        enableEsbuildLoader: process.env.NODE_ENV !== 'production',
         esbuildMinimizerOptions: {
           target: 'es2015',
           css: true,
