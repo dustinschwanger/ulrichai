@@ -1,5 +1,6 @@
 # Frontend Dockerfile for Production Deployment
 # Multi-stage build for optimized production image
+# Updated: Force cache bust for esbuild minifier fix
 
 # Stage 1: Build
 FROM node:18-alpine AS builder
