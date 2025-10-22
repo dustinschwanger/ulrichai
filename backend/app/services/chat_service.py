@@ -275,8 +275,10 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
         if documents:
             context_parts.append("**RELEVANT DOCUMENTS:**")
             for doc in documents:
-                title = doc.get('title', 'Unknown Document')
-                content = doc.get('content', '')[:800]  # Increased from 500 for better context
+                # Support multiple metadata formats (old and new)
+                title = doc.get('title') or doc.get('doc_title', 'Unknown Document')
+                content = doc.get('content') or doc.get('chunk_text', '')
+                content = content[:800] if content else ''  # Increased from 500 for better context
                 page_num = doc.get('page_number', '')
                 start_time = doc.get('start_time')
                 end_time = doc.get('end_time')
