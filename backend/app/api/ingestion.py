@@ -515,6 +515,33 @@ async def get_processing_status(doc_id: str):
         logger.error(f"Error checking document status: {e}")
         raise HTTPException(status_code=500, detail="Error checking document status")
 
+@router.get("/debug/metadata")
+async def debug_metadata():
+    """Debug endpoint to show all metadata in database"""
+    try:
+        from ..models import DocumentMetadata
+        session = db.get_session()
+        if not session:
+            return {"error": "No database connection"}
+
+        all_metadata = session.query(DocumentMetadata).all()
+        result = []
+        for meta in all_metadata:
+            result.append({
+                'filename': meta.filename,
+                'display_name': meta.display_name,
+                'document_type': meta.document_type,
+                'document_source': meta.document_source,
+                'author': meta.author,
+                'human_capability_domain': meta.human_capability_domain,
+                'publication_date': meta.publication_date,
+                'description': meta.description
+            })
+        session.close()
+        return {"count": len(result), "metadata": result}
+    except Exception as e:
+        return {"error": str(e)}
+
 @router.get("/documents")
 async def list_documents(page: int = 1, limit: int = 50):
     """List all uploaded documents from Supabase storage"""
