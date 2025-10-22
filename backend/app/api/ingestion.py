@@ -537,6 +537,10 @@ async def list_documents(page: int = 1, limit: int = 50):
                     # Check if we have metadata from database
                     db_metadata = metadata_dict.get(file_name)
 
+                    # Debug logging for filename matching
+                    if not db_metadata and file_name.endswith(('.mp4', '.webm', '.mov', '.avi')):
+                        logger.warning(f"No metadata found for video: '{file_name}'. Available keys: {list(metadata_dict.keys())}")
+
                     if db_metadata:
                         # Use metadata from database
                         display_name = db_metadata.display_name
