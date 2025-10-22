@@ -15,18 +15,7 @@ load_dotenv()
 
 # Import your Base and models
 from app.core.database import Base
-# Import all models so they're registered with Base
-from app.lms.models import (
-    Organization,
-    LMSUser,
-    Course,
-    CourseVersion,
-    Module,
-    Lesson,
-    ContentItem,
-    Cohort,
-    Enrollment
-)
+# No models to import - using vector database only
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

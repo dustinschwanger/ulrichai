@@ -1,72 +1,23 @@
-const CracoEsbuildPlugin = require('craco-esbuild');
-
 module.exports = {
-  plugins: [
-    {
-      plugin: CracoEsbuildPlugin,
-      options: {
-        // Only use esbuild for development, not production
-        enableEsbuildLoader: process.env.NODE_ENV !== 'production',
-        esbuildMinimizerOptions: {
-          target: 'es2015',
-          css: true,
-        },
-      },
-    },
-  ],
   webpack: {
     configure: (webpackConfig) => {
-      // Increase memory limit for build
-      webpackConfig.optimization = {
-        ...webpackConfig.optimization,
-        splitChunks: {
-          chunks: 'all',
-          cacheGroups: {
-            vendor: {
-              test: /[\\/]node_modules[\\/]/,
-              name(module) {
-                // Get the package name
-                if (!module.context) return 'vendor.shared';
-                const match = module.context.match(
-                  /[\\/]node_modules[\\/](.*?)([\\/]|$)/
-                );
-                if (!match) return 'vendor.shared';
-                const packageName = match[1];
-                return `vendor.${packageName.replace('@', '')}`;
-              },
-              priority: 10,
-            },
-            mui: {
-              test: /[\\/]node_modules[\\/]@mui[\\/]/,
-              name: 'vendor.mui',
-              priority: 20,
-            },
-            tiptap: {
-              test: /[\\/]node_modules[\\/]@tiptap[\\/]/,
-              name: 'vendor.tiptap',
-              priority: 20,
-            },
-            redux: {
-              test: /[\\/]node_modules[\\/](@reduxjs|react-redux)[\\/]/,
-              name: 'vendor.redux',
-              priority: 20,
-            },
-            common: {
-              minChunks: 2,
-              priority: 5,
-              reuseExistingChunk: true,
-            },
-          },
-        },
-      };
+      // Find and disable the ForkTsCheckerWebpackPlugin to prevent memory issues
+      const forkTsCheckerIndex = webpackConfig.plugins.findIndex(
+        (plugin) => plugin.constructor.name === 'ForkTsCheckerWebpackPlugin'
+      );
 
-      // Disable minification temporarily to avoid MUI compatibility issues
-      if (process.env.NODE_ENV === 'production') {
-        webpackConfig.optimization.minimize = false;
-        webpackConfig.devtool = false;
+      if (forkTsCheckerIndex !== -1) {
+        // Remove the plugin entirely to avoid memory issues
+        webpackConfig.plugins.splice(forkTsCheckerIndex, 1);
       }
 
       return webpackConfig;
     },
+  },
+  eslint: {
+    enable: false, // Disable ESLint to reduce memory usage
+  },
+  typescript: {
+    enableTypeChecking: false, // Disable type checking during build
   },
 };

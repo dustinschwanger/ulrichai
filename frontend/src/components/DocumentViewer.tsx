@@ -18,6 +18,7 @@ interface DocumentViewerProps {
   url?: string;
   allowDownload?: boolean;
   onClose: () => void;
+  bucket?: string;
 }
 
 const DocumentViewer: React.FC<DocumentViewerProps> = ({
@@ -26,7 +27,8 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
   title,
   url,
   allowDownload = false,
-  onClose
+  onClose,
+  bucket = 'documents'
 }) => {
   const [zoom, setZoom] = useState(100);
   const [numPages, setNumPages] = useState<number>(0);
@@ -64,7 +66,9 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
   useEffect(() => {
     // Set the PDF URL
     if (url) {
-      setPdfUrl(url);
+      // If URL is relative, prepend the API base URL
+      const fullUrl = url.startsWith('http') ? url : `${config.API_BASE_URL}${url}`;
+      setPdfUrl(fullUrl);
     } else {
       fetchDocumentUrl();
     }
@@ -130,17 +134,17 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
 
     try {
       // Use the Supabase signed URL for downloads
-      const response = await fetch(`${config.API_BASE_URL}/api/ingestion/documents/${encodeURIComponent(filename)}/download`);
+      const response = await fetch(`${config.API_BASE_URL}/api/ingestion/documents/${encodeURIComponent(filename)}/download?bucket=${bucket}`);
       if (response.ok) {
         const data = await response.json();
         window.open(data.url, '_blank');
       } else {
         // Fallback to direct PDF endpoint
-        window.open(`${config.API_BASE_URL}/api/documents/${encodeURIComponent(filename)}`, '_blank');
+        window.open(`${config.API_BASE_URL}/api/documents/${encodeURIComponent(filename)}?bucket=${bucket}`, '_blank');
       }
     } catch (error) {
       console.error('Download error:', error);
-      window.open(`${config.API_BASE_URL}/api/documents/${encodeURIComponent(filename)}`, '_blank');
+      window.open(`${config.API_BASE_URL}/api/documents/${encodeURIComponent(filename)}?bucket=${bucket}`, '_blank');
     }
   };
 

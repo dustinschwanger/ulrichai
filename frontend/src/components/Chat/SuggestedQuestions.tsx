@@ -82,89 +82,225 @@ export const SuggestedQuestions: React.FC<SuggestedQuestionsProps> = ({
   return (
     <Fade in={visible} timeout={500}>
       <Box sx={{ px: 2, py: 3 }}>
-        <Paper
-          elevation={0}
-          sx={{
-            p: 3,
-            backgroundColor: 'background.default',
-            borderRadius: 3,
-            border: '1px solid',
-            borderColor: 'divider',
-          }}
-        >
-          {/* Header */}
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
-            <SparkleIcon sx={{ color: 'primary.main', fontSize: 20 }} />
-            <Typography variant="subtitle2" color="text.primary" fontWeight={600}>
-              Suggested Questions
-            </Typography>
-          </Stack>
-
-          {/* Questions Grid */}
-          <motion.div
-            variants={containerVariants}
-            initial="hidden"
-            animate="visible"
+        {/* Header with Gradient */}
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 3, px: 1 }}>
+          <Box
+            sx={{
+              background: 'linear-gradient(135deg, #071D49 0%, #0086D6 100%)',
+              borderRadius: '8px',
+              p: 0.5,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
           >
-            <Stack direction="row" flexWrap="wrap" gap={1.5}>
-              {displayQuestions.map((question, index) => {
-                const defaultQ = defaultQuestions[index];
-                const icon = defaultQ?.icon || <SparkleIcon />;
-                const category = defaultQ?.category || 'general';
+            <SparkleIcon sx={{ color: 'white', fontSize: 18 }} />
+          </Box>
+          <Typography
+            variant="h6"
+            sx={{
+              fontWeight: 700,
+              background: 'linear-gradient(135deg, #071D49 0%, #0086D6 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+            }}
+          >
+            Suggested Questions
+          </Typography>
+        </Stack>
 
-                return (
-                  <motion.div key={index} variants={itemVariants}>
-                    <MotionChip
-                      icon={icon}
-                      label={question}
-                      onClick={() => onQuestionClick(question)}
-                      variant="outlined"
-                      sx={{
-                        py: 2.5,
-                        px: 1,
-                        height: 'auto',
-                        maxWidth: { xs: '100%', sm: 350 },
-                        '& .MuiChip-label': {
-                          whiteSpace: 'normal',
-                          display: 'block',
-                          lineHeight: 1.4,
-                          py: 0.5,
+        {/* Questions Grid */}
+        <motion.div
+          variants={containerVariants}
+          initial="hidden"
+          animate="visible"
+        >
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+              gap: 2,
+            }}
+          >
+            {displayQuestions.map((question, index) => {
+              const defaultQ = defaultQuestions[index];
+              const icon = defaultQ?.icon || <SparkleIcon />;
+              const category = defaultQ?.category || 'general';
+
+              // Define gradient colors for each category
+              const gradients = {
+                leadership: 'linear-gradient(135deg, #071D49 0%, #0086D6 100%)',
+                hr: 'linear-gradient(135deg, #0086D6 0%, #19A9FF 100%)',
+                culture: 'linear-gradient(135deg, #008884 0%, #5EC4B6 100%)',
+                performance: 'linear-gradient(135deg, #E8B70B 0%, #F0C83B 100%)',
+                general: 'linear-gradient(135deg, #071D49 0%, #0086D6 100%)',
+              };
+
+              return (
+                <motion.div key={index} variants={itemVariants} style={{ height: '100%' }}>
+                  <Paper
+                    onClick={() => onQuestionClick(question)}
+                    elevation={0}
+                    sx={{
+                      p: 3,
+                      height: '100%',
+                      cursor: 'pointer',
+                      position: 'relative',
+                      overflow: 'hidden',
+                      background: 'background.paper',
+                      border: '2px solid transparent',
+                      borderRadius: 3,
+                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                      '&::before': {
+                        content: '""',
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        borderRadius: 3,
+                        padding: '2px',
+                        background: gradients[category as keyof typeof gradients],
+                        WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+                        WebkitMaskComposite: 'xor',
+                        maskComposite: 'exclude',
+                        opacity: 0,
+                        transition: 'opacity 0.3s',
+                      },
+                      '&:hover': {
+                        transform: 'translateY(-4px)',
+                        boxShadow: '0 12px 40px rgba(0, 134, 214, 0.15)',
+                        '&::before': {
+                          opacity: 1,
                         },
-                        borderColor: 'divider',
-                        backgroundColor: 'background.paper',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s',
+                        '& .icon-container': {
+                          transform: 'scale(1.1) rotate(5deg)',
+                        },
+                      },
+                      '&:active': {
+                        transform: 'translateY(-2px)',
+                      },
+                    }}
+                  >
+                    {/* Gradient Overlay on Hover */}
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        background: gradients[category as keyof typeof gradients],
+                        opacity: 0,
+                        transition: 'opacity 0.3s',
+                        borderRadius: 3,
                         '&:hover': {
-                          borderColor: 'primary.main',
-                          backgroundColor: 'action.hover',
-                          transform: 'translateY(-2px)',
-                          boxShadow: 2,
+                          opacity: 0.03,
                         },
                       }}
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
                     />
-                  </motion.div>
-                );
-              })}
-            </Stack>
-          </motion.div>
 
-          {/* Quick Tips */}
-          <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
-            <Stack direction="row" spacing={3} flexWrap="wrap">
-              <Typography variant="caption" color="text.secondary">
-                💡 Tip: Type <strong>@</strong> to select an agent
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                📎 Drag & drop files to upload
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                ⌨️ Press <strong>Tab</strong> to autocomplete
-              </Typography>
-            </Stack>
+                    <Stack spacing={2} sx={{ position: 'relative', zIndex: 1 }}>
+                      {/* Icon */}
+                      <Box
+                        className="icon-container"
+                        sx={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: '10px',
+                          background: gradients[category as keyof typeof gradients],
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: 'white',
+                          transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                          boxShadow: '0 4px 14px rgba(0, 134, 214, 0.25)',
+                        }}
+                      >
+                        {icon}
+                      </Box>
+
+                      {/* Question Text */}
+                      <Typography
+                        variant="body1"
+                        sx={{
+                          fontWeight: 500,
+                          lineHeight: 1.5,
+                          color: 'text.primary',
+                        }}
+                      >
+                        {question}
+                      </Typography>
+
+                      {/* Hover Indicator */}
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 0.5,
+                          color: 'primary.main',
+                          fontSize: '0.875rem',
+                          fontWeight: 600,
+                          opacity: 0,
+                          transform: 'translateX(-10px)',
+                          transition: 'all 0.3s',
+                          'div:hover &': {
+                            opacity: 1,
+                            transform: 'translateX(0)',
+                          },
+                        }}
+                      >
+                        Ask this question →
+                      </Box>
+                    </Stack>
+                  </Paper>
+                </motion.div>
+              );
+            })}
           </Box>
-        </Paper>
+        </motion.div>
+
+        {/* Quick Tips with Modern Design */}
+        <Box
+          sx={{
+            mt: 4,
+            p: 2.5,
+            borderRadius: 2,
+            background: 'linear-gradient(135deg, rgba(0, 134, 214, 0.05) 0%, rgba(25, 169, 255, 0.05) 100%)',
+            border: '1px solid',
+            borderColor: 'rgba(0, 134, 214, 0.1)',
+          }}
+        >
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+            {[
+              { icon: '💡', text: 'Type @ to select an agent' },
+              { icon: '📎', text: 'Drag & drop files' },
+              { icon: '⌨️', text: 'Press Tab to autocomplete' },
+            ].map((tip, i) => (
+              <Box
+                key={i}
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  flex: 1,
+                }}
+              >
+                <Box
+                  sx={{
+                    fontSize: '1.25rem',
+                    filter: 'grayscale(0.2)',
+                  }}
+                >
+                  {tip.icon}
+                </Box>
+                <Typography variant="caption" color="text.secondary" fontWeight={500}>
+                  {tip.text}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
+        </Box>
       </Box>
     </Fade>
   );

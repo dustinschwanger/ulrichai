@@ -37,6 +37,7 @@ interface Document {
   showInViewer: boolean;
   uploadDate: string;
   fileUrl?: string;
+  bucket?: string;
 }
 
 const Admin: React.FC = () => {
@@ -136,7 +137,8 @@ const Admin: React.FC = () => {
     } else if (doc.filename) {
       // Fallback: try to get a signed URL
       try {
-        const response = await fetch(`${config.API_BASE_URL}/api/ingestion/documents/${encodeURIComponent(doc.filename)}/download`);
+        const bucket = doc.bucket || 'documents';
+        const response = await fetch(`${config.API_BASE_URL}/api/ingestion/documents/${encodeURIComponent(doc.filename)}/download?bucket=${bucket}`);
         if (response.ok) {
           const data = await response.json();
           window.open(data.url, '_blank');
@@ -155,7 +157,8 @@ const Admin: React.FC = () => {
     }
 
     try {
-      const response = await fetch(`${config.API_BASE_URL}/api/ingestion/documents/${encodeURIComponent(doc.filename)}/download`);
+      const bucket = doc.bucket || 'documents';
+      const response = await fetch(`${config.API_BASE_URL}/api/ingestion/documents/${encodeURIComponent(doc.filename)}/download?bucket=${bucket}`);
       if (response.ok) {
         const data = await response.json();
         // Create a temporary link to trigger download
@@ -174,16 +177,17 @@ const Admin: React.FC = () => {
     }
   };
 
-  const handleDeleteDocument = async (filename: string, displayName: string) => {
-    if (!window.confirm(`Are you sure you want to delete "${displayName}"?`)) {
+  const handleDeleteDocument = async (doc: Document) => {
+    if (!window.confirm(`Are you sure you want to delete "${doc.displayName}"?`)) {
       return;
     }
-    
+
     try {
-      const response = await fetch(`${config.API_BASE_URL}/api/ingestion/documents/${encodeURIComponent(filename)}`, {
+      const bucket = doc.bucket || 'documents';
+      const response = await fetch(`${config.API_BASE_URL}/api/ingestion/documents/${encodeURIComponent(doc.filename)}?bucket=${bucket}`, {
         method: 'DELETE'
       });
-      
+
       if (response.ok) {
         alert('Document deleted successfully');
         fetchDocuments();
@@ -251,7 +255,7 @@ const Admin: React.FC = () => {
     try {
       console.log('Uploading document with metadata:', metadata);
       
-      const response = await fetch(`${config.API_BASE_URL}/api/ingestion/upload-with-config`, {
+      const response = await fetch(`${config.API_BASE_URL}/api/ingestion/upload`, {
         method: 'POST',
         body: formData,
       });
@@ -709,7 +713,7 @@ const Admin: React.FC = () => {
                         )}
                         <button 
                           className="action-button delete-button"
-                          onClick={() => handleDeleteDocument(doc.filename, doc.displayName)}
+                          onClick={() => handleDeleteDocument(doc)}
                           title="Delete document"
                         >
                           <X size={14} />

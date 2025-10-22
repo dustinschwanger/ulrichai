@@ -15,6 +15,7 @@ import { Loading } from '../common/Loading';
 import toast from 'react-hot-toast';
 import { config } from '../../config';
 import DocumentViewer from '../DocumentViewer';
+import VideoViewer from '../VideoViewer';
 
 interface Source {
   title: string;
@@ -46,6 +47,7 @@ interface Message {
 export const Chat: React.FC = () => {
   const theme = useTheme();
   const [messages, setMessages] = useState<Message[]>([]);
+  // Modal overlay enabled
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [activeAgent, setActiveAgent] = useState('general');
@@ -282,14 +284,19 @@ export const Chat: React.FC = () => {
     console.log('Starting handleSourceClick for:', source.filename);
 
     try {
-      // Skip permissions check for now and go directly to getting the URL
-      console.log('Attempting to get document URL');
+      // Detect if this is a video source
+      const isVideo = source.content_type === 'video' ||
+                     source.content_type === 'lesson_video' ||
+                     (source.start_time !== undefined && source.start_time !== null);
 
-      // Get the document URL from multiple sources
+      console.log('Is video source:', isVideo);
+      console.log('Attempting to get', isVideo ? 'video' : 'document', 'URL');
+
+      // Get the document/video URL from multiple sources
       let documentUrl = source.fileUrl;
 
       if (!documentUrl) {
-        // Try to fetch from the download endpoint
+        // Try to fetch from the download endpoint (let backend determine bucket)
         try {
           console.log('Trying download endpoint...');
           const urlResponse = await fetch(`${config.API_BASE_URL}/api/ingestion/documents/${encodeURIComponent(source.filename)}/download`);
@@ -300,7 +307,7 @@ export const Chat: React.FC = () => {
             console.log('Got URL from download endpoint:', documentUrl);
           }
         } catch (error) {
-          console.error('Error getting document URL from download endpoint:', error);
+          console.error('Error getting URL from download endpoint:', error);
         }
       }
 
@@ -322,16 +329,10 @@ export const Chat: React.FC = () => {
       }
 
       if (!documentUrl) {
-        // Final fallback - use direct PDF endpoint
+        // Final fallback - use direct endpoint (let backend determine bucket)
         documentUrl = `${config.API_BASE_URL}/api/documents/${encodeURIComponent(source.filename)}`;
-        console.log('Using direct PDF endpoint:', documentUrl);
+        console.log('Using direct endpoint:', documentUrl);
       }
-
-      console.log('Final document URL:', documentUrl);
-      console.log('About to set selectedDocument with:', {
-        ...source,
-        fileUrl: documentUrl
-      });
 
       // Set the selected document with the proper URL
       setSelectedDocument({
@@ -340,13 +341,13 @@ export const Chat: React.FC = () => {
       });
 
       toast(`Opening ${source.title}...`, {
-        icon: '📄',
+        icon: isVideo ? '🎥' : '📄',
         duration: 1000,
       });
     } catch (error) {
       console.error('Error in handleSourceClick:', error);
       console.error('Error stack:', error instanceof Error ? error.stack : 'No stack');
-      toast.error('Failed to open document');
+      toast.error('Failed to open source');
     }
   };
 
@@ -357,21 +358,13 @@ export const Chat: React.FC = () => {
   return (
     <Box
       sx={{
-        height: '100vh',
+        height: '100%',
         display: 'flex',
-        flexDirection: 'row',
+        flexDirection: 'column',
         backgroundColor: theme.palette.background.default,
+        overflow: 'hidden',
       }}
     >
-      {/* Main Chat Area */}
-      <Box
-        sx={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          minWidth: 0,
-        }}
-      >
       {/* Chat Header */}
       <ChatHeader
         conversationTitle={messages.length > 0 ? 'Active Conversation' : 'New Conversation'}
@@ -392,48 +385,44 @@ export const Chat: React.FC = () => {
           flex: 1,
           overflowY: 'auto',
           backgroundColor: theme.palette.background.default,
+          backgroundImage: `
+            radial-gradient(circle at 20% 50%, rgba(0, 134, 214, 0.03) 0%, transparent 50%),
+            radial-gradient(circle at 80% 80%, rgba(25, 169, 255, 0.03) 0%, transparent 50%),
+            radial-gradient(circle at 40% 20%, rgba(0, 136, 132, 0.02) 0%, transparent 50%)
+          `,
         }}
       >
         <Container maxWidth="lg" sx={{ py: 2 }}>
           {messages.length === 0 ? (
             <Box>
               {/* Welcome Message */}
-              <Box sx={{ textAlign: 'center', py: 4 }}>
-                <Paper
-                  elevation={0}
+              <Box sx={{ textAlign: 'center', py: 6 }}>
+                <Box
+                  component="h1"
                   sx={{
-                    display: 'inline-block',
-                    p: 4,
-                    backgroundColor: 'background.paper',
-                    borderRadius: 3,
+                    fontSize: '2.5rem',
+                    fontWeight: 700,
+                    background: 'linear-gradient(135deg, #071D49 0%, #0086D6 50%, #19A9FF 100%)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    mb: 3,
                   }}
                 >
-                  <Box
-                    component="h1"
-                    sx={{
-                      fontSize: '2.5rem',
-                      fontWeight: 700,
-                      background: 'linear-gradient(135deg, #071D49 0%, #0086D6 50%, #19A9FF 100%)',
-                      WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent',
-                      mb: 2,
-                    }}
-                  >
-                    Welcome to RBL AI
-                  </Box>
-                  <Box
-                    component="p"
-                    sx={{
-                      fontSize: '1.125rem',
-                      color: 'text.secondary',
-                      maxWidth: 600,
-                      mx: 'auto',
-                    }}
-                  >
-                    Powered by Dave Ulrich's decades of research and The RBL Group's expertise.
-                    Ask questions about HR, leadership, and organizational development.
-                  </Box>
-                </Paper>
+                  Welcome to RBL AI
+                </Box>
+                <Box
+                  component="p"
+                  sx={{
+                    fontSize: '1.125rem',
+                    color: 'text.secondary',
+                    maxWidth: 700,
+                    mx: 'auto',
+                    lineHeight: 1.6,
+                  }}
+                >
+                  Powered by Dave Ulrich's decades of research and The RBL Group's expertise.
+                  Ask questions about HR, leadership, talent, and organization capability
+                </Box>
               </Box>
 
               {/* Suggested Questions */}
@@ -466,6 +455,9 @@ export const Chat: React.FC = () => {
           borderColor: 'divider',
           backgroundColor: theme.palette.background.paper,
           p: 2,
+          background: `linear-gradient(to top, ${theme.palette.background.paper} 0%, rgba(255,255,255,0.98) 100%)`,
+          backdropFilter: 'blur(10px)',
+          boxShadow: '0 -4px 20px rgba(0,0,0,0.05)',
         }}
       >
         <Container maxWidth="lg">
@@ -477,33 +469,79 @@ export const Chat: React.FC = () => {
           />
         </Container>
       </Box>
-      </Box>
 
-      {/* Document Viewer Panel */}
+      {/* Document/Video Viewer Modal Overlay */}
       {selectedDocument && (
         <Box
           sx={{
-            width: '50%',
-            maxWidth: '800px',
-            minWidth: '400px',
-            height: '100vh',
-            borderLeft: '1px solid',
-            borderColor: 'divider',
-            backgroundColor: theme.palette.background.paper,
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 1300,
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            backdropFilter: 'blur(4px)',
             display: 'flex',
-            flexDirection: 'column',
-            position: 'relative',
-            boxShadow: '-2px 0 8px rgba(0,0,0,0.1)',
+            alignItems: 'center',
+            justifyContent: 'center',
+            p: 3,
+            animation: 'fadeIn 0.2s ease-out',
+            '@keyframes fadeIn': {
+              from: { opacity: 0 },
+              to: { opacity: 1 },
+            },
           }}
+          onClick={handleCloseDocument}
         >
-          <DocumentViewer
-            filename={selectedDocument.filename}
-            pageNumber={selectedDocument.page_number}
-            title={selectedDocument.title}
-            url={selectedDocument.fileUrl}
-            allowDownload={true}
-            onClose={handleCloseDocument}
-          />
+          <Box
+            sx={{
+              width: '90%',
+              maxWidth: '1200px',
+              height: '90vh',
+              backgroundColor: theme.palette.background.paper,
+              borderRadius: 3,
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              animation: 'slideUp 0.3s ease-out',
+              '@keyframes slideUp': {
+                from: {
+                  opacity: 0,
+                  transform: 'translateY(20px) scale(0.98)',
+                },
+                to: {
+                  opacity: 1,
+                  transform: 'translateY(0) scale(1)',
+                },
+              },
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Check if source is a video */}
+            {(selectedDocument.content_type === 'video' ||
+              selectedDocument.content_type === 'lesson_video' ||
+              (selectedDocument.start_time !== undefined && selectedDocument.start_time !== null)) ? (
+              <VideoViewer
+                filename={selectedDocument.filename}
+                title={selectedDocument.title}
+                url={selectedDocument.fileUrl}
+                startTime={selectedDocument.start_time}
+                allowDownload={true}
+                onClose={handleCloseDocument}
+              />
+            ) : (
+              <DocumentViewer
+                filename={selectedDocument.filename}
+                pageNumber={selectedDocument.page_number}
+                title={selectedDocument.title}
+                url={selectedDocument.fileUrl}
+                allowDownload={true}
+                onClose={handleCloseDocument}
+              />
+            )}
+          </Box>
         </Box>
       )}
     </Box>

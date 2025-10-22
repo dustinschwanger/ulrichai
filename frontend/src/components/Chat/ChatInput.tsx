@@ -145,11 +145,18 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       </Fade>
 
       <Paper
-        elevation={3}
+        elevation={0}
         sx={{
-          p: 2,
+          p: 2.5,
           borderRadius: 3,
           backgroundColor: 'background.paper',
+          border: '2px solid',
+          borderColor: 'divider',
+          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          '&:focus-within': {
+            borderColor: 'primary.main',
+            boxShadow: '0 8px 24px rgba(0, 134, 214, 0.15)',
+          },
         }}
       >
         <Stack spacing={2}>
@@ -246,20 +253,26 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   onClick={handleSend}
                   disabled={!message.trim() || isLoading || disabled}
                   sx={{
-                    backgroundColor: 'primary.main',
-                    color: 'primary.contrastText',
+                    background: 'linear-gradient(135deg, #0086D6 0%, #19A9FF 100%)',
+                    color: 'white',
+                    width: 44,
+                    height: 44,
+                    boxShadow: '0 4px 14px rgba(0, 134, 214, 0.3)',
+                    transition: 'all 0.3s',
                     '&:hover': {
-                      backgroundColor: 'primary.dark',
+                      background: 'linear-gradient(135deg, #071D49 0%, #0086D6 100%)',
+                      boxShadow: '0 8px 20px rgba(0, 134, 214, 0.4)',
                     },
                     '&.Mui-disabled': {
                       backgroundColor: 'action.disabledBackground',
+                      boxShadow: 'none',
                     },
                   }}
                 >
                   {isLoading ? (
-                    <CircularProgress size={20} color="inherit" />
+                    <CircularProgress size={20} sx={{ color: 'white' }} />
                   ) : (
-                    <SendIcon />
+                    <SendIcon sx={{ fontSize: 20 }} />
                   )}
                 </IconButton>
               </MotionBox>

@@ -1,4 +1,5 @@
 import json
+import re
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
 from typing import List, Dict, Any
 import os
@@ -14,10 +15,11 @@ from ..core.vector_store import vector_store
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/ingestion", tags=["ingestion"])
+router = APIRouter(tags=["ingestion"])
 
 # Create uploads directory if it doesn't exist
-UPLOAD_DIR = Path("uploads")
+# Use absolute path to root uploads directory (two levels up from app/api to get to backend, then one more to root)
+UPLOAD_DIR = Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))) / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 @router.post("/upload")
@@ -280,13 +282,134 @@ async def get_processing_status(doc_id: str):
         logger.error(f"Error checking document status: {e}")
         raise HTTPException(status_code=500, detail="Error checking document status")
 
+@router.get("/documents")
+async def list_documents(page: int = 1, limit: int = 50):
+    """List all uploaded documents from Supabase storage"""
+
+    try:
+        from ..core.database import supabase
+
+        all_files = []
+
+        # Check if Supabase storage is available
+        if supabase:
+            # List of buckets to check
+            buckets = ['documents']
+
+            for bucket_name in buckets:
+                try:
+                    logger.info(f"Fetching files from bucket: {bucket_name}")
+                    files = supabase.storage.from_(bucket_name).list()
+
+                    if files:
+                        for file_obj in files:
+                            # Add bucket info to each file object
+                            file_obj['bucket'] = bucket_name
+                            all_files.append(file_obj)
+                        logger.info(f"Found {len(files)} files in {bucket_name}")
+                    else:
+                        logger.info(f"No files found in {bucket_name}")
+
+                except Exception as e:
+                    logger.error(f"Error listing files from bucket {bucket_name}: {e}")
+                    continue
+
+            if all_files:
+                # Sort all files by created_at timestamp (newest first), handling None values
+                sorted_files = sorted(all_files, key=lambda x: x.get('created_at') or '1970-01-01', reverse=True)
+                total_count = len(sorted_files)
+
+                # Paginate results
+                start_idx = (page - 1) * limit
+                end_idx = start_idx + limit
+                paginated_files = sorted_files[start_idx:end_idx]
+
+                documents = []
+                for file_obj in paginated_files:
+                    file_name = file_obj['name']
+                    bucket_name = file_obj.get('bucket', 'documents')
+
+                    # Clean up the display name by removing timestamp prefixes and adding spaces
+                    clean_name = file_name.rsplit('.', 1)[0] if '.' in file_name else file_name
+
+                    # Remove timestamp patterns: YYYYMMDD_HHMMSS_ or TIMESTAMP_
+                    if '_' in clean_name:
+                        parts = clean_name.split('_')
+                        # Remove leading numeric parts (timestamps)
+                        while parts and parts[0].replace('.', '').replace('-', '').isdigit():
+                            parts.pop(0)
+                        clean_name = '_'.join(parts) if parts else clean_name
+
+                    # Add spaces before capital letters (camelCase to Title Case)
+                    clean_name = re.sub(r'([a-z])([A-Z])', r'\1 \2', clean_name)
+                    # Replace underscores and hyphens with spaces
+                    clean_name = clean_name.replace('_', ' ').replace('-', ' ')
+                    # Clean up multiple spaces
+                    clean_name = re.sub(r'\s+', ' ', clean_name).strip()
+
+                    # If name is empty or just "lessons", try to get a better name
+                    if not clean_name or clean_name.lower() == 'lessons':
+                        # Try to extract from metadata or use filename
+                        clean_name = file_obj.get('metadata', {}).get('name', file_name) if isinstance(file_obj.get('metadata'), dict) else file_name
+
+                    # Determine file type
+                    file_ext = file_name.split('.')[-1].lower() if '.' in file_name else ''
+                    doc_type = 'video' if file_ext in ['mp4', 'webm', 'mov', 'avi'] else 'article'
+
+                    # All documents come from the documents bucket
+                    source = 'upload'
+
+                    # Get author from metadata if available
+                    author = 'Unknown'
+                    if isinstance(file_obj.get('metadata'), dict):
+                        file_metadata = file_obj.get('metadata', {})
+                        author = file_metadata.get('author', file_metadata.get('uploader', 'Unknown'))
+
+                    documents.append({
+                        'id': f"{bucket_name}_{file_name.rsplit('.', 1)[0]}",
+                        'displayName': clean_name,
+                        'filename': file_name,
+                        'documentSource': source,
+                        'documentType': doc_type,
+                        'humanCapabilityDomain': 'hr',
+                        'author': author,
+                        'publicationDate': (file_obj.get('created_at') or datetime.now().isoformat())[:10],
+                        'uploadDate': file_obj.get('updated_at') or file_obj.get('created_at') or datetime.now().isoformat(),
+                        'description': '',
+                        'allowDownload': True,
+                        'showInViewer': True,
+                        'size': (file_obj.get('metadata') or {}).get('size', 0),
+                        'permissions': 'read',
+                        'fileUrl': f'/api/documents/{file_name}?bucket={bucket_name}',
+                        'bucket': bucket_name
+                    })
+            else:
+                total_count = 0
+                documents = []
+        else:
+            logger.warning("Supabase storage not available")
+            total_count = 0
+            documents = []
+
+        return {
+            'documents': documents,
+            'total': total_count,
+            'page': page,
+            'limit': limit,
+            'pages': (total_count + limit - 1) // limit if total_count > 0 else 0
+        }
+
+    except Exception as e:
+        logger.error(f"Error listing documents: {e}")
+        raise HTTPException(status_code=500, detail=f"Error listing documents: {str(e)}")
+
 @router.post("/bulk-upload")
 async def bulk_upload_documents(
     files: List[UploadFile] = File(...),
     background_tasks: BackgroundTasks = BackgroundTasks()
 ):
     """Upload multiple documents at once"""
-    
+
     results = []
     
     for file in files:
@@ -329,3 +452,70 @@ async def bulk_upload_documents(
         "message": f"Processing {len(files)} documents",
         "results": results
     }
+
+@router.delete("/documents/{filename}")
+async def delete_document(filename: str, bucket: str = "documents"):
+    """Delete a document from Supabase storage and Pinecone vector database"""
+
+    try:
+        from ..core.database import supabase
+
+        if not supabase:
+            raise HTTPException(status_code=503, detail="Storage service is not available")
+
+        # Delete from Supabase storage
+        try:
+            supabase.storage.from_(bucket).remove([filename])
+            logger.info(f"Deleted {filename} from Supabase storage")
+        except Exception as e:
+            logger.error(f"Error deleting file from storage: {e}")
+            raise HTTPException(status_code=500, detail=f"Error deleting file from storage: {str(e)}")
+
+        # Delete from Pinecone vector database
+        try:
+            vector_store.delete_by_filename(filename)
+            logger.info(f"Deleted vectors for {filename} from Pinecone")
+        except Exception as e:
+            logger.warning(f"Could not delete from Pinecone (continuing anyway): {e}")
+
+        return {
+            "message": f"Successfully deleted {filename} from all locations",
+            "filename": filename,
+            "bucket": bucket
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting document {filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error deleting document: {str(e)}")
+
+@router.get("/documents/{filename}/download")
+async def download_document(filename: str, bucket: str = "documents"):
+    """Generate a signed URL for downloading a document from Supabase storage"""
+
+    try:
+        from ..core.database import supabase
+
+        if not supabase:
+            raise HTTPException(status_code=503, detail="Storage service is not available")
+
+        # Generate a signed URL (valid for 1 hour)
+        signed_url = supabase.storage.from_(bucket).create_signed_url(
+            filename,
+            3600  # 1 hour expiry
+        )
+
+        if not signed_url or 'signedURL' not in signed_url:
+            raise HTTPException(status_code=404, detail=f"Could not generate download URL for {filename}")
+
+        return {
+            "url": signed_url['signedURL'],
+            "filename": filename,
+            "bucket": bucket,
+            "expires_in": 3600
+        }
+
+    except Exception as e:
+        logger.error(f"Error generating download URL for {filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error generating download URL: {str(e)}")

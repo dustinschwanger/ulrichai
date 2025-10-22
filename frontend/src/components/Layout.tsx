@@ -26,11 +26,7 @@ import {
   Menu as MenuIcon,
   Chat as ChatIcon,
   AdminPanelSettings as AdminIcon,
-  Dashboard as DashboardIcon,
-  School as SchoolIcon,
-  Analytics as AnalyticsIcon,
   Settings as SettingsIcon,
-  Help as HelpIcon,
   Notifications as NotificationsIcon,
   AccountCircle as AccountIcon,
   Brightness4 as DarkModeIcon,
@@ -70,48 +66,18 @@ const Layout: React.FC<LayoutProps> = ({ children, isDarkMode, setIsDarkMode }) 
     {
       text: 'Chat',
       icon: <ChatIcon />,
-      path: '/',
-      description: 'AI Learning Assistant',
-    },
-    {
-      text: 'Dashboard',
-      icon: <DashboardIcon />,
-      path: '/dashboard',
-      description: 'Overview & Analytics',
-      badge: 'New',
-    },
-    {
-      text: 'Learning',
-      icon: <SchoolIcon />,
-      path: '/learning',
-      description: 'Courses & Materials',
-    },
-    {
-      text: 'Analytics',
-      icon: <AnalyticsIcon />,
-      path: '/analytics',
-      description: 'Insights & Reports',
+      path: '/chat',
+      description: 'AI Assistant',
     },
     {
       text: 'Admin',
       icon: <AdminIcon />,
-      path: '/admin',
+      path: '/chat/admin',
       description: 'Manage Content',
     },
   ];
 
-  const bottomMenuItems = [
-    {
-      text: 'Settings',
-      icon: <SettingsIcon />,
-      path: '/settings',
-    },
-    {
-      text: 'Help & Support',
-      icon: <HelpIcon />,
-      path: '/help',
-    },
-  ];
+  const bottomMenuItems: Array<{text: string; icon: JSX.Element; path: string}> = [];
 
   const drawer = (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -120,26 +86,44 @@ const Layout: React.FC<LayoutProps> = ({ children, isDarkMode, setIsDarkMode }) 
         <Stack direction="row" spacing={2} alignItems="center">
           <Box
             sx={{
-              width: 40,
-              height: 40,
-              borderRadius: 2,
-              background: 'linear-gradient(135deg, #6366F1 0%, #818CF8 100%)',
+              width: 48,
+              height: 48,
+              borderRadius: 2.5,
+              background: 'linear-gradient(135deg, #071D49 0%, #0086D6 100%)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               color: 'white',
               fontWeight: 700,
-              fontSize: '1.25rem',
+              fontSize: '1.5rem',
+              boxShadow: '0 4px 14px rgba(0, 134, 214, 0.3)',
+              position: 'relative',
+              overflow: 'hidden',
+              '&::before': {
+                content: '""',
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'linear-gradient(135deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 100%)',
+              },
             }}
           >
             U
           </Box>
           <Box>
-            <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+            <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
               Ulrich AI
             </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Intelligent Learning Platform
+            <Typography
+              variant="caption"
+              sx={{
+                color: 'text.secondary',
+                fontWeight: 500,
+              }}
+            >
+              AI Knowledge Assistant
             </Typography>
           </Box>
         </Stack>
@@ -163,8 +147,21 @@ const Layout: React.FC<LayoutProps> = ({ children, isDarkMode, setIsDarkMode }) 
               borderRadius: 2,
               mb: 1,
               py: 1.5,
+              position: 'relative',
+              overflow: 'hidden',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
               '&.Mui-selected': {
-                backgroundColor: theme.palette.action.selected,
+                background: 'linear-gradient(135deg, rgba(0, 134, 214, 0.1) 0%, rgba(25, 169, 255, 0.05) 100%)',
+                borderLeft: '3px solid',
+                borderColor: 'primary.main',
+                '& .MuiListItemIcon-root': {
+                  color: 'primary.main',
+                  transform: 'scale(1.1)',
+                },
+              },
+              '&:hover': {
+                background: 'linear-gradient(135deg, rgba(0, 134, 214, 0.05) 0%, rgba(25, 169, 255, 0.02) 100%)',
+                transform: 'translateX(4px)',
               },
             }}
           >
@@ -373,11 +370,11 @@ const Layout: React.FC<LayoutProps> = ({ children, isDarkMode, setIsDarkMode }) 
         component="main"
         sx={{
           flexGrow: 1,
-          p: 3,
           width: { sm: `calc(100% - ${drawerWidth}px)` },
           mt: 8,
           backgroundColor: theme.palette.background.default,
-          minHeight: '100vh',
+          height: 'calc(100vh - 64px)',
+          overflow: 'hidden',
         }}
       >
         {children || <Outlet />}

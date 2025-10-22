@@ -27,7 +27,13 @@ class Database:
                 if database_url.startswith("postgresql://"):
                     database_url = database_url.replace("postgresql://", "postgresql+psycopg2://")
                 
-                self.engine = create_engine(database_url)
+                self.engine = create_engine(
+                    database_url,
+                    pool_pre_ping=True,  # Test connections before using them
+                    pool_recycle=300,    # Recycle connections after 5 minutes
+                    pool_size=10,        # Connection pool size
+                    max_overflow=20      # Max overflow connections
+                )
                 self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
                 logger.info("Successfully connected to database")
                 

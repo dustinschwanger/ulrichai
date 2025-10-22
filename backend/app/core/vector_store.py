@@ -66,5 +66,31 @@ class VectorStore:
             logger.error(f"Error generating batch embeddings: {e}")
             raise
 
+    def delete_by_filename(self, filename: str) -> Dict[str, Any]:
+        """Delete all vectors associated with a filename from Pinecone"""
+        try:
+            # Query to find all vectors with this filename
+            # First, we need to list all vectors with this filename using metadata filtering
+            logger.info(f"Deleting vectors for filename: {filename}")
+
+            # Delete by metadata filter
+            # Pinecone's delete supports filtering by metadata
+            delete_response = self.index.delete(
+                filter={
+                    "filename": {"$eq": filename}
+                }
+            )
+
+            logger.info(f"Successfully deleted vectors for {filename}")
+            return {
+                "status": "success",
+                "filename": filename,
+                "message": f"Deleted all vectors for {filename}"
+            }
+
+        except Exception as e:
+            logger.error(f"Error deleting vectors for {filename}: {e}")
+            raise
+
 # Create global vector store instance
 vector_store = VectorStore()

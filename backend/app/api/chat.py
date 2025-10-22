@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 class ChatRequest(BaseModel):
     query: str
     session_id: Optional[str] = None
-    context: Optional[Dict[str, Any]] = None  # For lesson context
+    context: Optional[Dict[str, Any]] = None
 
 class ChatResponse(BaseModel):
     answer: str
