@@ -44,11 +44,14 @@ async def upload_document(
         )
 
     # Parse metadata and chunking config
+    logger.info(f"Received metadata string: {metadata}")
     try:
         metadata_dict = json.loads(metadata) if metadata else {}
         chunking_config_dict = json.loads(chunking_config) if chunking_config else {}
+        logger.info(f"Parsed metadata_dict: {metadata_dict}")
     except json.JSONDecodeError as e:
         logger.error(f"Error parsing metadata or chunking config: {e}")
+        logger.error(f"Failed metadata string was: {metadata}")
         metadata_dict = {}
         chunking_config_dict = {}
 
