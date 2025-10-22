@@ -1,6 +1,6 @@
 import json
 import re
-from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Form
 from typing import List, Dict, Any
 import os
 import shutil
@@ -27,8 +27,8 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 @router.post("/upload")
 async def upload_document(
     file: UploadFile = File(...),
-    metadata: str = None,
-    chunking_config: str = None,
+    metadata: str = Form(None),
+    chunking_config: str = Form(None),
     background_tasks: BackgroundTasks = BackgroundTasks()
 ):
     """Upload and process a single document or video"""
