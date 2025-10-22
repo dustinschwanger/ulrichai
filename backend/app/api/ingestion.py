@@ -84,6 +84,7 @@ async def process_document_task(file_path: str, file_type: str, original_filenam
         if metadata is None:
             metadata = {}
         logger.info(f"Starting to process document: {original_filename}")
+        logger.info(f"Received metadata: {metadata}")
         
         # Process document
         doc_data = await processor.process_document(file_path, file_type)
