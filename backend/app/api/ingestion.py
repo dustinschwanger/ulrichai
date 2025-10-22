@@ -171,11 +171,14 @@ async def process_video_task(file_path: str, file_type: str, original_filename: 
         # Upload video to Supabase storage
         logger.info(f"Uploading video to Supabase: {original_filename}")
         try:
-            # Upload to 'documents' bucket
+            # Try to upload to 'documents' bucket with upsert option
             upload_result = supabase.storage.from_('documents').upload(
                 path=original_filename,
                 file=video_content,
-                file_options={"content-type": f"video/{file_type}"}
+                file_options={
+                    "content-type": f"video/{file_type}",
+                    "upsert": "true"  # Overwrite if exists
+                }
             )
 
             # Get public URL
@@ -184,8 +187,15 @@ async def process_video_task(file_path: str, file_type: str, original_filename: 
 
             logger.info(f"Video uploaded to Supabase: {file_url}")
         except Exception as e:
-            logger.error(f"Error uploading video to Supabase: {e}")
-            file_url = None
+            logger.warning(f"Upload failed (possibly duplicate), attempting to get existing file URL: {e}")
+            # If upload fails, try to get URL of existing file
+            try:
+                file_url_result = supabase.storage.from_('documents').get_public_url(original_filename)
+                file_url = file_url_result if isinstance(file_url_result, str) else file_url_result.get('publicUrl', '')
+                logger.info(f"Using existing video URL: {file_url}")
+            except Exception as url_error:
+                logger.error(f"Failed to get file URL: {url_error}")
+                file_url = None
 
         # Generate embeddings and store in Pinecone
         logger.info(f"Generating embeddings for {len(chunks)} video chunks")
