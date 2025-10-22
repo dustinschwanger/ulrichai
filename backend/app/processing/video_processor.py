@@ -3,6 +3,7 @@
 import os
 import logging
 import tempfile
+import shutil
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 import openai
@@ -15,6 +16,21 @@ class VideoProcessor:
     def __init__(self):
         self.max_duration = 3600  # 1 hour max for transcription
         self.audio_format = 'mp3'
+
+        # Set environment variables for ffmpeg binaries
+        os.environ.setdefault("FFMPEG_BINARY", "ffmpeg")
+        os.environ.setdefault("FFPROBE_BINARY", "ffprobe")
+
+        # Log ffprobe path for debugging
+        ffprobe_path = shutil.which("ffprobe")
+        ffmpeg_path = shutil.which("ffmpeg")
+        logger.info(f"ffprobe path: {ffprobe_path}")
+        logger.info(f"ffmpeg path: {ffmpeg_path}")
+
+        if not ffprobe_path:
+            logger.error("ffprobe not found in PATH! Video processing will fail.")
+        if not ffmpeg_path:
+            logger.error("ffmpeg not found in PATH! Video processing will fail.")
         
     async def process_video(self, video_content: bytes, filename: str) -> Dict[str, Any]:
         """

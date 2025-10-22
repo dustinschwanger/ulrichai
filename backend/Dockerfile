@@ -4,10 +4,11 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Install system dependencies including ffmpeg for video processing
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     postgresql-client \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -18,6 +19,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
+
+# Set environment variables for ffmpeg binaries and Python output
+ENV FFMPEG_BINARY=ffmpeg \
+    FFPROBE_BINARY=ffprobe \
+    PYTHONUNBUFFERED=1
 
 # Create uploads directory
 RUN mkdir -p uploads
