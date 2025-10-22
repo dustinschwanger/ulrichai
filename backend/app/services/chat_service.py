@@ -197,15 +197,31 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
                     }
                     logger.info(f"Filtering by course_id: {context.get('course_id')}")
 
-            search_results = index.query(
-                vector=query_embedding,
-                top_k=limit * 2 if metadata_filter else limit,  # Get more results when filtering
-                include_metadata=True,
-                filter=metadata_filter
-            )
-            
+            # Search across all namespaces where vectors are stored
+            all_matches = []
+            namespaces_to_search = ['chunks', 'sections', 'documents']
+
+            for ns in namespaces_to_search:
+                try:
+                    ns_results = index.query(
+                        vector=query_embedding,
+                        top_k=limit * 2 if metadata_filter else limit,  # Get more results when filtering
+                        include_metadata=True,
+                        filter=metadata_filter,
+                        namespace=ns
+                    )
+                    if ns_results.matches:
+                        all_matches.extend(ns_results.matches)
+                        logger.info(f"Namespace '{ns}': found {len(ns_results.matches)} matches")
+                except Exception as e:
+                    logger.warning(f"Error searching namespace '{ns}': {e}")
+
+            # Sort all matches by score (descending) and take top K
+            all_matches.sort(key=lambda m: m.score, reverse=True)
+            search_results = type('obj', (object,), {'matches': all_matches[:limit * 2 if metadata_filter else limit]})()
+
             # Debug: Log what we got back from search
-            logger.info(f"Search returned {len(search_results.matches)} matches")
+            logger.info(f"Search returned {len(search_results.matches)} matches (across all namespaces)")
             for i, match in enumerate(search_results.matches[:2]):  # Log first 2 matches
                 logger.info(f"Match {i}: score={match.score}, metadata keys: {match.metadata.keys()}")
                 if match.metadata.get('content_type') == 'video':
