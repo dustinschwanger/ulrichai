@@ -244,6 +244,8 @@ async def process_video_task(file_path: str, file_type: str, original_filename: 
         try:
             from ..models import DocumentMetadata
             session = db.get_session()
+            if not session:
+                logger.error("Cannot save metadata: Database session is None. Is DATABASE_URL configured?")
             if session:
                 # Upsert document metadata
                 doc_metadata = session.query(DocumentMetadata).filter_by(filename=original_filename).first()
@@ -481,6 +483,8 @@ async def list_documents(page: int = 1, limit: int = 50):
         # Get metadata from database
         metadata_dict = {}
         session = db.get_session()
+        if not session:
+            logger.warning("Cannot load metadata: Database session is None. Is DATABASE_URL configured? Documents will show filename-based display.")
         if session:
             try:
                 all_metadata = session.query(DocumentMetadata).all()
