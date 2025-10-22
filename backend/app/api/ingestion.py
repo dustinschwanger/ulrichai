@@ -30,7 +30,7 @@ async def upload_document(
     """Upload and process a single document"""
     
     # Validate file type
-    allowed_types = ['pdf', 'docx', 'doc', 'pptx', 'ppt']
+    allowed_types = ['pdf', 'docx', 'doc', 'pptx', 'ppt', 'mp4', 'webm', 'mov', 'avi', 'mkv']
     file_ext = file.filename.split('.')[-1].lower()
     
     if file_ext not in allowed_types:
@@ -415,7 +415,7 @@ async def bulk_upload_documents(
     for file in files:
         # Validate file type
         file_ext = file.filename.split('.')[-1].lower()
-        allowed_types = ['pdf', 'docx', 'doc', 'pptx', 'ppt']
+        allowed_types = ['pdf', 'docx', 'doc', 'pptx', 'ppt', 'mp4', 'webm', 'mov', 'avi', 'mkv']
         
         if file_ext not in allowed_types:
             results.append({
