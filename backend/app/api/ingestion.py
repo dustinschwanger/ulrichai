@@ -10,7 +10,9 @@ from datetime import datetime
 
 from ..processing.document_processor import processor
 from ..processing.graph_builder import graph_builder
-from ..core.database import db
+from ..processing.video_processor import VideoProcessor
+from ..processing.video_chunker import VideoChunker
+from ..core.database import db, supabase
 from ..core.vector_store import vector_store
 
 logger = logging.getLogger(__name__)
@@ -25,35 +27,53 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 @router.post("/upload")
 async def upload_document(
     file: UploadFile = File(...),
+    metadata: str = None,
+    chunking_config: str = None,
     background_tasks: BackgroundTasks = BackgroundTasks()
 ):
-    """Upload and process a single document"""
-    
+    """Upload and process a single document or video"""
+
     # Validate file type
     allowed_types = ['pdf', 'docx', 'doc', 'pptx', 'ppt', 'mp4', 'webm', 'mov', 'avi', 'mkv']
     file_ext = file.filename.split('.')[-1].lower()
-    
+
     if file_ext not in allowed_types:
         raise HTTPException(
             status_code=400,
             detail=f"File type .{file_ext} not supported. Allowed types: {allowed_types}"
         )
-    
+
+    # Parse metadata and chunking config
+    try:
+        metadata_dict = json.loads(metadata) if metadata else {}
+        chunking_config_dict = json.loads(chunking_config) if chunking_config else {}
+    except json.JSONDecodeError as e:
+        logger.error(f"Error parsing metadata or chunking config: {e}")
+        metadata_dict = {}
+        chunking_config_dict = {}
+
     # Save uploaded file
     file_path = UPLOAD_DIR / f"{datetime.now().timestamp()}_{file.filename}"
-    
+
     try:
         with file_path.open("wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
     except Exception as e:
         logger.error(f"Error saving file: {e}")
         raise HTTPException(status_code=500, detail="Error saving uploaded file")
-    
-    # Process document in background
-    background_tasks.add_task(process_document_task, str(file_path), file_ext, file.filename)
-    
+
+    # Determine if this is a video file
+    video_extensions = ['mp4', 'webm', 'mov', 'avi', 'mkv']
+    is_video = file_ext in video_extensions
+
+    # Process in background - route to appropriate handler
+    if is_video:
+        background_tasks.add_task(process_video_task, str(file_path), file_ext, file.filename, metadata_dict)
+    else:
+        background_tasks.add_task(process_document_task, str(file_path), file_ext, file.filename)
+
     return {
-        "message": "Document uploaded successfully",
+        "message": f"{'Video' if is_video else 'Document'} uploaded successfully",
         "filename": file.filename,
         "status": "processing"
     }
@@ -104,6 +124,122 @@ async def process_document_task(file_path: str, file_type: str, original_filenam
     except Exception as e:
         logger.error(f"Error processing document {original_filename}: {e}")
         # Could update a status table here to mark as failed
+
+async def process_video_task(file_path: str, file_type: str, original_filename: str, metadata: Dict[str, Any]):
+    """Background task to process video - transcribe and index"""
+    try:
+        logger.info(f"Starting to process video: {original_filename}")
+
+        # Initialize video processor and chunker
+        video_processor = VideoProcessor()
+        video_chunker = VideoChunker({
+            'chunkSize': 1000,
+            'chunkOverlap': 200,
+            'minSegmentDuration': 10.0,
+            'maxSegmentDuration': 120.0
+        })
+
+        # Read video file
+        with open(file_path, 'rb') as f:
+            video_content = f.read()
+
+        logger.info(f"Transcribing video: {original_filename}")
+        # Transcribe video using Whisper
+        transcript_result = await video_processor.process_video(
+            video_content=video_content,
+            filename=original_filename
+        )
+
+        logger.info(f"Chunking transcript for: {original_filename}")
+        # Chunk the transcript with timestamps
+        base_metadata = {
+            'filename': original_filename,
+            'display_name': metadata.get('displayName', original_filename),
+            'document_source': metadata.get('documentSource', 'upload'),
+            'document_type': metadata.get('documentType', 'video'),
+            'capability_domain': metadata.get('humanCapabilityDomain', 'hr'),
+            'author': metadata.get('author', ''),
+        }
+
+        chunks = video_chunker.chunk_video_transcript(
+            transcript_data=transcript_result['transcript'],
+            metadata=base_metadata
+        )
+
+        logger.info(f"Created {len(chunks)} chunks for video: {original_filename}")
+
+        # Upload video to Supabase storage
+        logger.info(f"Uploading video to Supabase: {original_filename}")
+        try:
+            # Upload to 'documents' bucket
+            upload_result = supabase.storage.from_('documents').upload(
+                path=original_filename,
+                file=video_content,
+                file_options={"content-type": f"video/{file_type}"}
+            )
+
+            # Get public URL
+            file_url_result = supabase.storage.from_('documents').get_public_url(original_filename)
+            file_url = file_url_result if isinstance(file_url_result, str) else file_url_result.get('publicUrl', '')
+
+            logger.info(f"Video uploaded to Supabase: {file_url}")
+        except Exception as e:
+            logger.error(f"Error uploading video to Supabase: {e}")
+            file_url = None
+
+        # Generate embeddings and store in Pinecone
+        logger.info(f"Generating embeddings for {len(chunks)} video chunks")
+        chunks_indexed = 0
+
+        for i, chunk in enumerate(chunks):
+            try:
+                chunk_id = f"video_{original_filename}_{i}"
+
+                # Generate embedding for chunk content
+                embedding = vector_store.get_embedding(chunk.content)
+
+                # Prepare metadata for Pinecone
+                pinecone_metadata = {
+                    'content': chunk.content,
+                    'filename': original_filename,
+                    'title': metadata.get('displayName', original_filename),
+                    'display_name': metadata.get('displayName', original_filename),
+                    'section': metadata.get('documentSource', 'upload'),
+                    'content_type': 'video',
+                    'document_type': metadata.get('documentType', 'video'),
+                    'capability_domain': metadata.get('humanCapabilityDomain', 'hr'),
+                    'author': metadata.get('author', ''),
+                    'start_time': chunk.start_time,
+                    'end_time': chunk.end_time,
+                    'duration': chunk.end_time - chunk.start_time,
+                    'timestamp_display': chunk.metadata.get('timestamp_display', ''),
+                    'language': chunk.metadata.get('language', 'en'),
+                    'fileUrl': file_url or ''
+                }
+
+                # Store in Pinecone
+                vector_store.index.upsert(
+                    vectors=[(chunk_id, embedding, pinecone_metadata)]
+                )
+
+                chunks_indexed += 1
+
+            except Exception as e:
+                logger.error(f"Error indexing chunk {i} for video {original_filename}: {e}")
+                continue
+
+        logger.info(f"Successfully indexed {chunks_indexed}/{len(chunks)} chunks for video: {original_filename}")
+
+        # Clean up temp file
+        try:
+            os.unlink(file_path)
+        except Exception as e:
+            logger.warning(f"Could not delete temp file {file_path}: {e}")
+
+    except Exception as e:
+        logger.error(f"Error processing video {original_filename}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
 
 async def store_in_vector_db(doc_data: Dict, doc_embedding: List[float], 
                             section_embeddings: List[Dict], chunk_embeddings: List[List[float]]):
