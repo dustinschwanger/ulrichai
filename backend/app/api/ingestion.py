@@ -70,7 +70,7 @@ async def upload_document(
     if is_video:
         background_tasks.add_task(process_video_task, str(file_path), file_ext, file.filename, metadata_dict)
     else:
-        background_tasks.add_task(process_document_task, str(file_path), file_ext, file.filename)
+        background_tasks.add_task(process_document_task, str(file_path), file_ext, file.filename, metadata_dict)
 
     return {
         "message": f"{'Video' if is_video else 'Document'} uploaded successfully",
@@ -78,9 +78,11 @@ async def upload_document(
         "status": "processing"
     }
 
-async def process_document_task(file_path: str, file_type: str, original_filename: str):
+async def process_document_task(file_path: str, file_type: str, original_filename: str, metadata: Dict[str, Any] = None):
     """Background task to process document"""
     try:
+        if metadata is None:
+            metadata = {}
         logger.info(f"Starting to process document: {original_filename}")
         
         # Process document
@@ -120,7 +122,49 @@ async def process_document_task(file_path: str, file_type: str, original_filenam
         await update_document_graph(doc_data, doc_embedding)
         
         logger.info(f"Successfully processed document: {original_filename}")
-        
+
+        # Save metadata to database
+        try:
+            from ..models import DocumentMetadata
+            session = db.get_session()
+            if not session:
+                logger.error("Cannot save metadata: Database session is None. Is DATABASE_URL configured?")
+            if session:
+                # Upsert document metadata
+                doc_metadata = session.query(DocumentMetadata).filter_by(filename=original_filename).first()
+                if doc_metadata:
+                    # Update existing
+                    doc_metadata.display_name = metadata.get('displayName', original_filename)
+                    doc_metadata.document_type = metadata.get('documentType', 'article')
+                    doc_metadata.document_source = metadata.get('documentSource', 'upload')
+                    doc_metadata.human_capability_domain = metadata.get('humanCapabilityDomain', 'hr')
+                    doc_metadata.author = metadata.get('author')
+                    doc_metadata.publication_date = metadata.get('publicationDate')
+                    doc_metadata.description = metadata.get('description')
+                    doc_metadata.allow_download = metadata.get('allowDownload', True)
+                    doc_metadata.show_in_viewer = metadata.get('showInViewer', True)
+                else:
+                    # Create new
+                    doc_metadata = DocumentMetadata(
+                        filename=original_filename,
+                        display_name=metadata.get('displayName', original_filename),
+                        document_type=metadata.get('documentType', 'article'),
+                        document_source=metadata.get('documentSource', 'upload'),
+                        human_capability_domain=metadata.get('humanCapabilityDomain', 'hr'),
+                        author=metadata.get('author'),
+                        publication_date=metadata.get('publicationDate'),
+                        description=metadata.get('description'),
+                        allow_download=metadata.get('allowDownload', True),
+                        show_in_viewer=metadata.get('showInViewer', True),
+                        bucket='documents'
+                    )
+                    session.add(doc_metadata)
+                session.commit()
+                logger.info(f"Saved metadata to database for {original_filename}")
+                session.close()
+        except Exception as e:
+            logger.error(f"Error saving metadata to database: {e}")
+
     except Exception as e:
         logger.error(f"Error processing document {original_filename}: {e}")
         # Could update a status table here to mark as failed
