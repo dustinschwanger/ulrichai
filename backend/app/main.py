@@ -135,10 +135,21 @@ app.include_router(documents.router, prefix="/api", tags=["documents"])
 async def startup_event():
     """Initialize services on startup"""
     logging.info("Starting Ulrich AI...")
-    
+
+    # Create database tables
+    from .core.database import db, Base
+    from .models import DocumentMetadata  # Import models to register them
+
+    if db.engine:
+        try:
+            Base.metadata.create_all(bind=db.engine)
+            logging.info("Database tables created/verified")
+        except Exception as e:
+            logging.error(f"Error creating database tables: {e}")
+
     # Initialize vector store indexes
     from .core.vector_store import vector_store
-    
+
     try:
         vector_store.create_indexes()
         logging.info("Vector store indexes ready")

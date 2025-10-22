@@ -240,6 +240,46 @@ async def process_video_task(file_path: str, file_type: str, original_filename: 
 
         logger.info(f"Successfully indexed {chunks_indexed}/{len(chunks)} chunks for video: {original_filename}")
 
+        # Save metadata to database
+        try:
+            from ..models import DocumentMetadata
+            session = db.get_session()
+            if session:
+                # Upsert document metadata
+                doc_metadata = session.query(DocumentMetadata).filter_by(filename=original_filename).first()
+                if doc_metadata:
+                    # Update existing
+                    doc_metadata.display_name = metadata.get('displayName', original_filename)
+                    doc_metadata.document_type = metadata.get('documentType', 'video')
+                    doc_metadata.document_source = metadata.get('documentSource', 'upload')
+                    doc_metadata.human_capability_domain = metadata.get('humanCapabilityDomain', 'hr')
+                    doc_metadata.author = metadata.get('author')
+                    doc_metadata.publication_date = metadata.get('publicationDate')
+                    doc_metadata.description = metadata.get('description')
+                    doc_metadata.allow_download = metadata.get('allowDownload', True)
+                    doc_metadata.show_in_viewer = metadata.get('showInViewer', True)
+                else:
+                    # Create new
+                    doc_metadata = DocumentMetadata(
+                        filename=original_filename,
+                        display_name=metadata.get('displayName', original_filename),
+                        document_type=metadata.get('documentType', 'video'),
+                        document_source=metadata.get('documentSource', 'upload'),
+                        human_capability_domain=metadata.get('humanCapabilityDomain', 'hr'),
+                        author=metadata.get('author'),
+                        publication_date=metadata.get('publicationDate'),
+                        description=metadata.get('description'),
+                        allow_download=metadata.get('allowDownload', True),
+                        show_in_viewer=metadata.get('showInViewer', True),
+                        bucket='documents'
+                    )
+                    session.add(doc_metadata)
+                session.commit()
+                logger.info(f"Saved metadata to database for {original_filename}")
+                session.close()
+        except Exception as e:
+            logger.error(f"Error saving metadata to database: {e}")
+
         # Clean up temp file
         try:
             os.unlink(file_path)
@@ -434,8 +474,23 @@ async def list_documents(page: int = 1, limit: int = 50):
 
     try:
         from ..core.database import supabase
+        from ..models import DocumentMetadata
 
         all_files = []
+
+        # Get metadata from database
+        metadata_dict = {}
+        session = db.get_session()
+        if session:
+            try:
+                all_metadata = session.query(DocumentMetadata).all()
+                metadata_dict = {meta.filename: meta for meta in all_metadata}
+                logger.info(f"Loaded {len(metadata_dict)} document metadata records from database")
+                session.close()
+            except Exception as e:
+                logger.error(f"Error loading metadata from database: {e}")
+                if session:
+                    session.close()
 
         # Check if Supabase storage is available
         if supabase:
@@ -475,55 +530,61 @@ async def list_documents(page: int = 1, limit: int = 50):
                     file_name = file_obj['name']
                     bucket_name = file_obj.get('bucket', 'documents')
 
-                    # Clean up the display name by removing timestamp prefixes and adding spaces
-                    clean_name = file_name.rsplit('.', 1)[0] if '.' in file_name else file_name
+                    # Check if we have metadata from database
+                    db_metadata = metadata_dict.get(file_name)
 
-                    # Remove timestamp patterns: YYYYMMDD_HHMMSS_ or TIMESTAMP_
-                    if '_' in clean_name:
-                        parts = clean_name.split('_')
-                        # Remove leading numeric parts (timestamps)
-                        while parts and parts[0].replace('.', '').replace('-', '').isdigit():
-                            parts.pop(0)
-                        clean_name = '_'.join(parts) if parts else clean_name
+                    if db_metadata:
+                        # Use metadata from database
+                        display_name = db_metadata.display_name
+                        doc_type = db_metadata.document_type
+                        source = db_metadata.document_source
+                        author = db_metadata.author or 'Unknown'
+                        publication_date = db_metadata.publication_date or (file_obj.get('created_at') or datetime.now().isoformat())[:10]
+                        description = db_metadata.description or ''
+                        allow_download = db_metadata.allow_download
+                        show_in_viewer = db_metadata.show_in_viewer
+                    else:
+                        # Fallback to filename-based logic for documents without metadata
+                        clean_name = file_name.rsplit('.', 1)[0] if '.' in file_name else file_name
 
-                    # Add spaces before capital letters (camelCase to Title Case)
-                    clean_name = re.sub(r'([a-z])([A-Z])', r'\1 \2', clean_name)
-                    # Replace underscores and hyphens with spaces
-                    clean_name = clean_name.replace('_', ' ').replace('-', ' ')
-                    # Clean up multiple spaces
-                    clean_name = re.sub(r'\s+', ' ', clean_name).strip()
+                        # Remove timestamp patterns: YYYYMMDD_HHMMSS_ or TIMESTAMP_
+                        if '_' in clean_name:
+                            parts = clean_name.split('_')
+                            # Remove leading numeric parts (timestamps)
+                            while parts and parts[0].replace('.', '').replace('-', '').isdigit():
+                                parts.pop(0)
+                            clean_name = '_'.join(parts) if parts else clean_name
 
-                    # If name is empty or just "lessons", try to get a better name
-                    if not clean_name or clean_name.lower() == 'lessons':
-                        # Try to extract from metadata or use filename
-                        clean_name = file_obj.get('metadata', {}).get('name', file_name) if isinstance(file_obj.get('metadata'), dict) else file_name
+                        # Add spaces before capital letters (camelCase to Title Case)
+                        clean_name = re.sub(r'([a-z])([A-Z])', r'\1 \2', clean_name)
+                        # Replace underscores and hyphens with spaces
+                        clean_name = clean_name.replace('_', ' ').replace('-', ' ')
+                        # Clean up multiple spaces
+                        clean_name = re.sub(r'\s+', ' ', clean_name).strip()
 
-                    # Determine file type
-                    file_ext = file_name.split('.')[-1].lower() if '.' in file_name else ''
-                    doc_type = 'video' if file_ext in ['mp4', 'webm', 'mov', 'avi'] else 'article'
-
-                    # All documents come from the documents bucket
-                    source = 'upload'
-
-                    # Get author from metadata if available
-                    author = 'Unknown'
-                    if isinstance(file_obj.get('metadata'), dict):
-                        file_metadata = file_obj.get('metadata', {})
-                        author = file_metadata.get('author', file_metadata.get('uploader', 'Unknown'))
+                        display_name = clean_name or file_name
+                        file_ext = file_name.split('.')[-1].lower() if '.' in file_name else ''
+                        doc_type = 'video' if file_ext in ['mp4', 'webm', 'mov', 'avi'] else 'article'
+                        source = 'upload'
+                        author = 'Unknown'
+                        publication_date = (file_obj.get('created_at') or datetime.now().isoformat())[:10]
+                        description = ''
+                        allow_download = True
+                        show_in_viewer = True
 
                     documents.append({
                         'id': f"{bucket_name}_{file_name.rsplit('.', 1)[0]}",
-                        'displayName': clean_name,
+                        'displayName': display_name,
                         'filename': file_name,
                         'documentSource': source,
                         'documentType': doc_type,
-                        'humanCapabilityDomain': 'hr',
+                        'humanCapabilityDomain': db_metadata.human_capability_domain if db_metadata else 'hr',
                         'author': author,
-                        'publicationDate': (file_obj.get('created_at') or datetime.now().isoformat())[:10],
+                        'publicationDate': publication_date,
                         'uploadDate': file_obj.get('updated_at') or file_obj.get('created_at') or datetime.now().isoformat(),
-                        'description': '',
-                        'allowDownload': True,
-                        'showInViewer': True,
+                        'description': description,
+                        'allowDownload': allow_download,
+                        'showInViewer': show_in_viewer,
                         'size': (file_obj.get('metadata') or {}).get('size', 0),
                         'permissions': 'read',
                         'fileUrl': f'/api/documents/{file_name}?bucket={bucket_name}',
