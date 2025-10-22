@@ -1,0 +1,53 @@
+# Node modules and frontend build
+frontend/node_modules
+frontend/build
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+backend/venv/
+*.egg-info/
+dist/
+build/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Environment files (will be set via Railway)
+.env
+.env.local
+*.env
+
+# Uploads and temp files
+backend/uploads/
+*.tmp
+
+# Documentation
+*.md
+!backend/README.md
+
+# Tests
+backend/tests/
+*.test.py
