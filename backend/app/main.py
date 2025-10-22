@@ -88,7 +88,10 @@ app.add_middleware(LimitUploadSizeMiddleware)
 # Configure CORS
 # Get allowed origins from environment variable
 cors_origins_env = os.getenv("CORS_ORIGINS", "")
+logging.info(f"🔍 DEBUG: CORS_ORIGINS raw value: '{cors_origins_env}'")
+logging.info(f"🔍 DEBUG: ENVIRONMENT value: '{os.getenv('ENVIRONMENT')}'")
 allowed_origins = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()] if cors_origins_env else []
+logging.info(f"🔍 DEBUG: Parsed allowed_origins: {allowed_origins}")
 
 # Development origins (only used if CORS_ORIGINS not set)
 default_dev_origins = [
