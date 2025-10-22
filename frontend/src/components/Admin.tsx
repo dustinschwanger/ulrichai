@@ -89,17 +89,29 @@ const Admin: React.FC = () => {
       }
       
       console.log('Fetching documents from:', `${config.API_BASE_URL}/api/ingestion/documents?${params}`);
-      
+
       const response = await fetch(`${config.API_BASE_URL}/api/ingestion/documents?${params}`);
       console.log('Response status:', response.status);
-      
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+
+      // Get raw text first to see what we're actually receiving
+      const text = await response.text();
+      console.log('Raw response (first 500 chars):', text.substring(0, 500));
+
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`HTTP error! status: ${response.status}, body: ${text.substring(0, 200)}`);
       }
-      
-      const data = await response.json();
-      console.log('Response data:', data);
-      
+
+      // Try to parse as JSON
+      let data;
+      try {
+        data = JSON.parse(text);
+        console.log('Response data:', data);
+      } catch (e) {
+        console.error('Failed to parse response as JSON. Raw text:', text);
+        throw new Error(`Invalid JSON response: ${text.substring(0, 200)}`);
+      }
+
       if (data.error) {
         setError(data.error);
         console.error('API returned error:', data.error);
