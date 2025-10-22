@@ -127,6 +127,49 @@ async def process_document_task(file_path: str, file_type: str, original_filenam
         
         logger.info(f"Successfully processed document: {original_filename}")
 
+        # Upload document to Supabase storage
+        logger.info(f"Uploading document to Supabase: {original_filename}")
+        try:
+            # Read the file content
+            with open(file_path, 'rb') as f:
+                file_content = f.read()
+
+            # Determine content type based on file extension
+            content_type_map = {
+                'pdf': 'application/pdf',
+                'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'doc': 'application/msword',
+                'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                'ppt': 'application/vnd.ms-powerpoint'
+            }
+            content_type = content_type_map.get(file_type, 'application/octet-stream')
+
+            # Upload to 'documents' bucket with upsert option
+            upload_result = supabase.storage.from_('documents').upload(
+                path=original_filename,
+                file=file_content,
+                file_options={
+                    "content-type": content_type,
+                    "upsert": "true"  # Overwrite if exists
+                }
+            )
+
+            # Get public URL
+            file_url_result = supabase.storage.from_('documents').get_public_url(original_filename)
+            file_url = file_url_result if isinstance(file_url_result, str) else file_url_result.get('publicUrl', '')
+
+            logger.info(f"Document uploaded to Supabase: {file_url}")
+        except Exception as e:
+            logger.warning(f"Upload to Supabase failed (possibly duplicate), attempting to get existing file URL: {e}")
+            # If upload fails, try to get URL of existing file
+            try:
+                file_url_result = supabase.storage.from_('documents').get_public_url(original_filename)
+                file_url = file_url_result if isinstance(file_url_result, str) else file_url_result.get('publicUrl', '')
+                logger.info(f"Using existing document URL: {file_url}")
+            except Exception as url_error:
+                logger.error(f"Failed to get file URL: {url_error}")
+                file_url = None
+
         # Save metadata to database
         try:
             from ..models import DocumentMetadata
