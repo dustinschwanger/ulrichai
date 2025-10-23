@@ -239,15 +239,21 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
                 for match in search_results.matches:
                     # Support both PDF and video metadata formats
                     # PDFs use: chunk_text, doc_title, section_title
-                    # Videos use: content, title, section
+                    # Videos use: content, title, section, filename
                     content = match.metadata.get('content') or match.metadata.get('chunk_text') or match.metadata.get('section_text', '')
                     title = match.metadata.get('title') or match.metadata.get('doc_title', '')
                     section = match.metadata.get('section') or match.metadata.get('section_title', '')
 
+                    # Extract filename - PDFs store it in doc_title, videos have separate filename field
+                    filename = match.metadata.get('filename', '')
+                    if not filename and title:
+                        # PDFs have filename in doc_title (e.g., "February 2023 Playbook_final.pdf")
+                        filename = title
+
                     documents.append({
                         'content': content,
                         'title': title,
-                        'filename': match.metadata.get('filename', ''),
+                        'filename': filename,
                         'page_number': match.metadata.get('page_number', ''),
                         'score': float(match.score) if hasattr(match, 'score') else 0.0,
                         'chunk_id': match.id if hasattr(match, 'id') else None,
