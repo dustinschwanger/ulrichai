@@ -681,15 +681,18 @@ You should be knowledgeable, patient, and focused on helping the student truly u
                         base_num = int(parts[-1])
                         filename_part = '_'.join(parts[:-1])
                         
-                        # Get a wider range for numbered sequences (like "six steps")
+                        # Get a wider range for numbered sequences (like "six steps", "10 dimensions")
                         # Check if this looks like it might be part of a numbered sequence
-                        is_numbered_sequence = any(num in str(doc.get('content', '')).lower() 
-                                                 for num in ['4.1', '4.2', '4.3', '4.4', '4.5', '4.6', 
-                                                           'step 1', 'step 2', 'step 3', 'step 4', 'step 5', 'step 6'])
-                        
+                        content_lower = str(doc.get('content', '')).lower()
+                        is_numbered_sequence = any(num in content_lower
+                                                 for num in ['4.1', '4.2', '4.3', '4.4', '4.5', '4.6',
+                                                           'step 1', 'step 2', 'step 3', 'step 4', 'step 5', 'step 6',
+                                                           'dimension', 'dimensions'])
+
                         if is_numbered_sequence:
                             # More aggressive search for numbered sequences
-                            for offset in range(-8, 9):  # Much wider range
+                            # For "10 dimensions" type queries, fetch up to 15 chunks before and after
+                            for offset in range(-15, 16):  # Much wider range for complete lists
                                 if offset != 0:
                                     seq_id = f"{filename_part}_{base_num + offset}"
                                     sequential_ids.append(seq_id)
@@ -730,8 +733,10 @@ You should be knowledgeable, patient, and focused on helping the student truly u
             # Sort by score (original matches first, then sequential)
             enhanced_docs.sort(key=lambda x: x['score'], reverse=True)
             
-            # Increased limit for numbered sequences
-            max_docs = 25 if any('4.1' in str(doc.get('content', '')) or 'step' in str(doc.get('content', '')).lower() 
+            # Increased limit for numbered sequences and dimension queries
+            max_docs = 30 if any('4.1' in str(doc.get('content', '')) or
+                                'step' in str(doc.get('content', '')).lower() or
+                                'dimension' in str(doc.get('content', '')).lower()
                                for doc in enhanced_docs) else 15
             
             logger.info(f"Returning {min(len(enhanced_docs), max_docs)} documents (max: {max_docs})")
