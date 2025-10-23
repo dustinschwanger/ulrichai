@@ -14,15 +14,22 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 class DocumentProcessor:
-    def __init__(self):
+    def __init__(self, chunk_size: int = None, chunk_overlap: int = None):
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if api_key:
             self.anthropic = Anthropic(api_key=api_key)
         else:
             self.anthropic = None
             print("WARNING: ANTHROPIC_API_KEY not set, AI features will be disabled")
-        self.chunk_size = 500  # tokens
-        self.chunk_overlap = 100  # tokens
+
+        # Use provided chunk size or default to 3000 characters (roughly 750 tokens)
+        # Converting characters to tokens: ~4 chars per token
+        self.chunk_size_chars = chunk_size if chunk_size is not None else 3000
+        self.chunk_overlap_chars = chunk_overlap if chunk_overlap is not None else 200
+
+        # Convert to tokens for backward compatibility (rough estimate: 4 chars per token)
+        self.chunk_size = self.chunk_size_chars // 4
+        self.chunk_overlap = self.chunk_overlap_chars // 4
         
     async def process_document(self, file_path: str, file_type: str) -> Dict[str, Any]:
         """Process document and extract hierarchical structure"""

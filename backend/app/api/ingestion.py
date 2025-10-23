@@ -73,7 +73,7 @@ async def upload_document(
     if is_video:
         background_tasks.add_task(process_video_task, str(file_path), file_ext, file.filename, metadata_dict)
     else:
-        background_tasks.add_task(process_document_task, str(file_path), file_ext, file.filename, metadata_dict)
+        background_tasks.add_task(process_document_task, str(file_path), file_ext, file.filename, metadata_dict, chunking_config_dict)
 
     return {
         "message": f"{'Video' if is_video else 'Document'} uploaded successfully",
@@ -81,16 +81,28 @@ async def upload_document(
         "status": "processing"
     }
 
-async def process_document_task(file_path: str, file_type: str, original_filename: str, metadata: Dict[str, Any] = None):
+async def process_document_task(file_path: str, file_type: str, original_filename: str, metadata: Dict[str, Any] = None, chunking_config: Dict[str, Any] = None):
     """Background task to process document"""
     try:
         if metadata is None:
             metadata = {}
+        if chunking_config is None:
+            chunking_config = {}
+
         logger.info(f"Starting to process document: {original_filename}")
         logger.info(f"Received metadata: {metadata}")
-        
-        # Process document
-        doc_data = await processor.process_document(file_path, file_type)
+        logger.info(f"Received chunking config: {chunking_config}")
+
+        # Extract chunking parameters (in characters, not tokens)
+        chunk_size = chunking_config.get('chunkSize', 3000)  # Default 3000 chars
+        chunk_overlap = chunking_config.get('chunkOverlap', 200)  # Default 200 chars
+
+        # Create processor with custom chunking settings
+        from app.processing.document_processor import DocumentProcessor
+        custom_processor = DocumentProcessor(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+
+        # Process document with custom chunking
+        doc_data = await custom_processor.process_document(file_path, file_type)
         doc_data['title'] = original_filename
         
         # Generate embeddings for all levels

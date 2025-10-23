@@ -21,9 +21,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def reindex_all_documents():
-    """Reindex all documents to add page numbers"""
+    """Reindex all documents with proper chunking configuration"""
 
-    logger.info("Starting document reindexing...")
+    logger.info("Starting document reindexing with 3000-character chunks...")
 
     # Get all documents from database
     session = db.get_session()
@@ -34,7 +34,9 @@ async def reindex_all_documents():
     documents = session.query(DocumentMetadata).all()
     logger.info(f"Found {len(documents)} documents in database")
 
-    processor = DocumentProcessor()
+    # Create processor with 3000 character chunks and 200 character overlap
+    processor = DocumentProcessor(chunk_size=3000, chunk_overlap=200)
+    logger.info("Using chunking config: 3000 chars with 200 char overlap")
 
     for doc_metadata in documents:
         filename = doc_metadata.filename
