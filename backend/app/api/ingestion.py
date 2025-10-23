@@ -435,7 +435,8 @@ async def store_in_vector_db(doc_data: Dict, doc_embedding: List[float],
                     'doc_title': doc_data['title'],
                     'section_title': chunk['section_title'],
                     'chunk_text': chunk['text'],
-                    'chunk_id': chunk['chunk_id']
+                    'chunk_id': chunk['chunk_id'],
+                    'page_number': chunk.get('page_number')  # Include page number for PDF navigation
                 }
             })
         
