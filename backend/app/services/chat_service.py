@@ -92,7 +92,40 @@ class ChatService:
         self.max_context_docs = 5
         self.max_context_chunks = 10
         self.name_mapper = DocumentNameMapper()
-        
+
+    def detect_query_intent(self, query: str) -> str:
+        """Detect whether user wants teaching/explanation or resource discovery.
+
+        Returns:
+            "assist" - User wants to find resources/documents
+            "teach" - User wants explanation/understanding (default)
+        """
+        query_lower = query.lower()
+
+        # Keywords that strongly indicate resource discovery intent
+        assist_keywords = [
+            "find", "show me", "give me",
+            "resources on", "resources about", "resources for",
+            "documents on", "documents about", "documents for",
+            "materials on", "materials about", "materials for",
+            "papers on", "papers about",
+            "readings on", "readings about",
+            "sources on", "sources about",
+            "where can i find", "where can i read",
+            "point me to", "direct me to",
+            "list of resources", "list of documents"
+        ]
+
+        # Check for assist keywords
+        for keyword in assist_keywords:
+            if keyword in query_lower:
+                logger.info(f"Detected ASSIST intent (keyword: '{keyword}')")
+                return "assist"
+
+        # Default to teach mode
+        logger.info("Detected TEACH intent (default)")
+        return "teach"
+
     async def process_query(self, query: str, session_id: Optional[str] = None) -> Dict[str, Any]:
         """Process a user query using Sandusky Current's approach"""
         
@@ -238,11 +271,17 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
                 
                 for match in search_results.matches:
                     # Support both PDF and video metadata formats
-                    # PDFs use: chunk_text, doc_title, section_title
-                    # Videos use: content, title, section, filename
+                    # PDFs use: chunk_text, doc_title, section_title, display_name
+                    # Videos use: content, title, section, filename, display_name
                     content = match.metadata.get('content') or match.metadata.get('chunk_text') or match.metadata.get('section_text', '')
                     title = match.metadata.get('title') or match.metadata.get('doc_title', '')
                     section = match.metadata.get('section') or match.metadata.get('section_title', '')
+
+                    # Extract display_name (user-friendly name) or generate from filename
+                    display_name = match.metadata.get('display_name')
+                    if not display_name:
+                        # Generate a clean display name from the filename
+                        display_name = self.name_mapper.get_display_name(filename if filename else title)
 
                     # Extract filename - PDFs store it in doc_title, videos have separate filename field
                     filename = match.metadata.get('filename', '')
@@ -253,6 +292,7 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
                     documents.append({
                         'content': content,
                         'title': title,
+                        'display_name': display_name,  # Add display_name for UI
                         'filename': filename,
                         'page_number': match.metadata.get('page_number', ''),
                         'score': float(match.score) if hasattr(match, 'score') else 0.0,
@@ -263,13 +303,16 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
                         'section': section
                     })
                 
+                # Filter out AI training documents (documents that shouldn't appear in RAG results)
+                documents = await self._filter_allowed_documents(documents)
+
                 # If structured query, get sequential chunks from best matches
                 if is_structured_query and documents:
                     logger.info("Detected structured query - fetching sequential chunks")
                     documents = await self._get_sequential_chunks(documents, index)
-            
+
             logger.info(f"Found {len(documents)} relevant documents (including sequential chunks)")
-            
+
             return {
                 'documents': documents
             }
@@ -316,7 +359,106 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
             context_parts.append("")  # Add spacing
 
         return "\n".join(context_parts) if context_parts else ""
-    
+
+    def build_context_prompt_assistant_mode(self, search_results: Dict[str, Any]) -> str:
+        """Build context prompt for assistant mode - groups by document and shows page ranges"""
+
+        documents = search_results.get('documents', [])
+        if not documents:
+            return ""
+
+        # Group documents by filename (or doc_id)
+        doc_groups = {}
+        for doc in documents:
+            filename = doc.get('filename', 'Unknown')
+            if filename not in doc_groups:
+                # Get display name - try metadata first, then generate from filename
+                display_name = doc.get('display_name')
+                if not display_name or display_name == filename:
+                    # Generate a clean display name from the filename
+                    display_name = self.name_mapper.get_display_name(filename)
+
+                doc_groups[filename] = {
+                    'display_name': display_name,
+                    'pages': set(),
+                    'chunks': [],
+                    'content_type': doc.get('content_type')
+                }
+
+            # Add page number if present
+            page_num = doc.get('page_number')
+            if page_num:
+                doc_groups[filename]['pages'].add(page_num)
+
+            # Add chunk with its score for sorting
+            doc_groups[filename]['chunks'].append({
+                'content': doc.get('content', ''),
+                'score': doc.get('score', 0.0),
+                'start_time': doc.get('start_time'),
+                'end_time': doc.get('end_time')
+            })
+
+        # Build formatted context
+        context_parts = ["**RELEVANT RESOURCES:**"]
+
+        # Limit to top 4-5 documents
+        sorted_docs = sorted(doc_groups.items(),
+                           key=lambda x: max(c['score'] for c in x[1]['chunks']),
+                           reverse=True)[:5]
+
+        logger.info(f"Building assistant context for {len(sorted_docs)} documents from {len(doc_groups)} groups")
+
+        for filename, doc_info in sorted_docs:
+            display_name = doc_info['display_name']
+            content_type = doc_info['content_type']
+
+            # Format location info
+            location_info = ""
+            if content_type == 'lesson_video' and doc_info['chunks']:
+                # For videos, show timestamp range
+                start_times = [c['start_time'] for c in doc_info['chunks'] if c.get('start_time') is not None]
+                if start_times:
+                    min_time = min(start_times)
+                    minutes = int(min_time // 60)
+                    seconds = int(min_time % 60)
+                    location_info = f" (Video timestamp: {minutes:02d}:{seconds:02d})"
+            elif doc_info['pages']:
+                # For PDFs, show page range
+                sorted_pages = sorted(doc_info['pages'])
+                if len(sorted_pages) == 1:
+                    location_info = f" (Page {sorted_pages[0]})"
+                else:
+                    # Format page ranges nicely
+                    page_str = ", ".join(str(p) for p in sorted_pages)
+                    location_info = f" (Pages {page_str})"
+
+            # Build the document entry WITHOUT revealing the filename
+            doc_header = f"- **{display_name}**{location_info}"
+            context_parts.append(doc_header)
+            logger.info(f"Added to context: {doc_header}")
+
+            # Sort chunks by score and take top 2-3 for this document
+            sorted_chunks = sorted(doc_info['chunks'], key=lambda x: x['score'], reverse=True)[:3]
+
+            # Combine excerpts (limit total to ~1200 chars per document)
+            excerpts = []
+            total_chars = 0
+            for chunk in sorted_chunks:
+                content = chunk['content']
+                if content:
+                    # Limit each excerpt to 400 chars
+                    excerpt = content[:400] if len(content) > 400 else content
+                    if total_chars + len(excerpt) <= 1200:
+                        excerpts.append(excerpt)
+                        total_chars += len(excerpt)
+
+            # Join excerpts with separator
+            combined_excerpt = " ... ".join(excerpts)
+            context_parts.append(f"  {combined_excerpt}")
+            context_parts.append("")  # Add spacing between documents
+
+        return "\n".join(context_parts)
+
     async def get_graph_context(self, doc_id: str) -> List[str]:
         """Get related documents from the graph"""
         
@@ -353,28 +495,112 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
     
     
     async def get_sources_for_query(self, query: str) -> List[Dict[str, Any]]:
-        """Get sources for a query without generating response"""
+        """Get sources for a query without generating response - groups by document in assistant mode"""
         try:
             search_results = await self.search_context(query, limit=10)
-            sources = []
-            for doc in search_results.get('documents', [])[:4]:
-                raw_section = doc.get('section', '')
-                formatted_section = self._format_document_source(raw_section)
+            documents = search_results.get('documents', [])
+            logger.info(f"📋 get_sources_for_query: Received {len(documents)} documents")
 
-                sources.append({
-                    "title": doc.get('title', ''),
-                    "filename": doc.get('filename', ''),
-                    "content": doc.get('content', '')[:200],
-                    "score": doc.get('score', 0.0),
-                    "page_number": doc.get('page_number'),
-                    "section": formatted_section,
-                    "type": "chunk",
-                    "start_time": doc.get('start_time'),
-                    "end_time": doc.get('end_time')
-                })
-            return sources
+            # Detect intent
+            intent = self.detect_query_intent(query)
+            logger.info(f"📋 get_sources_for_query: Intent detected as '{intent}'")
+
+            if intent == "assist":
+                # Assistant mode: Group by document, ONE source per unique document
+                doc_groups = {}
+                logger.info(f"📋 Assistant mode: Processing {len(documents)} documents")
+                for doc in documents:
+                    filename = doc.get('filename', 'Unknown')
+                    logger.info(f"📋   Document: filename='{filename}', title='{doc.get('title', 'N/A')}', has_display_name={bool(doc.get('display_name'))}")
+                    if filename not in doc_groups:
+                        # Get display name from metadata, or generate from filename
+                        display_name = doc.get('display_name')
+                        if not display_name:
+                            display_name = self.name_mapper.get_display_name(filename)
+
+                        doc_groups[filename] = {
+                            'display_name': display_name,
+                            'filename': filename,
+                            'pages': set(),
+                            'scores': [],
+                            'content': doc.get('content', '')[:200],  # Preview from first chunk
+                            'start_time': doc.get('start_time'),
+                            'end_time': doc.get('end_time'),
+                            'content_type': doc.get('content_type')
+                        }
+
+                    # Add page number if present
+                    page_num = doc.get('page_number')
+                    if page_num:
+                        doc_groups[filename]['pages'].add(page_num)
+
+                    # Track scores for sorting
+                    doc_groups[filename]['scores'].append(doc.get('score', 0.0))
+
+                # Convert to source list - ONE entry per document
+                sources = []
+                logger.info(f"📋 Created {len(doc_groups)} document groups")
+                sorted_docs = sorted(doc_groups.items(),
+                                   key=lambda x: max(x[1]['scores']),
+                                   reverse=True)[:5]  # Limit to top 5 documents
+                logger.info(f"📋 Returning top {len(sorted_docs)} documents as sources")
+
+                for filename, doc_info in sorted_docs:
+                    # Determine which page/time to show
+                    page_number = None
+                    if doc_info['pages']:
+                        sorted_pages = sorted(doc_info['pages'])
+                        # For multiple pages, use the first one
+                        page_number = sorted_pages[0] if len(sorted_pages) == 1 else None
+
+                    sources.append({
+                        "title": doc_info['display_name'],  # Use display_name, not filename
+                        "filename": doc_info['filename'],
+                        "content": doc_info['content'],
+                        "score": max(doc_info['scores']),
+                        "page_number": page_number,
+                        "section": None,
+                        "type": "document_group",  # Mark as grouped
+                        "start_time": doc_info.get('start_time'),
+                        "end_time": doc_info.get('end_time'),
+                        "pages": list(sorted(doc_info['pages'])) if doc_info['pages'] else []  # All pages for this document
+                    })
+
+                logger.info(f"📋 Returning {len(sources)} sources in assistant mode")
+                return sources
+
+            else:
+                # Teacher mode: Return raw chunks (original behavior)
+                logger.info(f"📋 Teacher mode: Processing top {min(4, len(documents))} documents")
+                sources = []
+                for doc in documents[:4]:
+                    raw_section = doc.get('section', '')
+                    formatted_section = self._format_document_source(raw_section)
+
+                    # Get display name - try metadata first, then generate from filename
+                    display_name = doc.get('display_name')
+                    if not display_name:
+                        filename = doc.get('filename', doc.get('title', ''))
+                        display_name = self.name_mapper.get_display_name(filename)
+
+                    sources.append({
+                        "title": display_name,
+                        "filename": doc.get('filename', ''),
+                        "content": doc.get('content', '')[:200],
+                        "score": doc.get('score', 0.0),
+                        "page_number": doc.get('page_number'),
+                        "section": formatted_section,
+                        "type": "chunk",
+                        "start_time": doc.get('start_time'),
+                        "end_time": doc.get('end_time')
+                    })
+                logger.info(f"📋 Returning {len(sources)} sources in teacher mode")
+                return sources
+
         except Exception as e:
-            logger.error(f"Error getting sources: {e}")
+            logger.error(f"❌ Error getting sources: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return []
 
     async def process_query_stream(self, query: str, session_id: Optional[str] = None, context: Optional[Dict[str, Any]] = None):
@@ -411,16 +637,55 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
             else:
                 # Normal query - search for context without filtering
                 search_results = await self.search_context(query, limit=10)
-                context_prompt = self.build_context_prompt(search_results)
 
-                # Create the full prompt for non-lesson queries
-                full_prompt = f"""Based on the following context, please provide a comprehensive answer about HR and organizational development.
+                # Detect intent: teach or assist
+                intent = self.detect_query_intent(query)
+
+                # Build context based on intent
+                if intent == "assist":
+                    # Use assistant-mode context builder (groups by document)
+                    context_prompt = self.build_context_prompt_assistant_mode(search_results)
+                    logger.info(f"Assistant mode context (first 500 chars): {context_prompt[:500]}")
+                else:
+                    # Use regular context builder (shows all chunks separately)
+                    context_prompt = self.build_context_prompt(search_results)
+                    logger.info(f"Teacher mode context (first 500 chars): {context_prompt[:500]}")
+
+                # Create the full prompt based on intent
+                if intent == "assist":
+                    # Assistant mode: Focus on presenting resources
+                    full_prompt = f"""Based on the following context, help the user discover relevant resources.
 
 {context_prompt}
 
 Question: {query}
 
-IMPORTANT INSTRUCTIONS:
+IMPORTANT INSTRUCTIONS (ASSISTANT MODE):
+1. Provide a brief 1-2 sentence introduction explaining why these resources address the query
+
+2. List UNIQUE documents only - ONE entry per document:
+   - Copy the **EXACT Display Name** as it appears in bold in the context (e.g., "What Makes an Effective HR Function?" NOT "February 2023 Playbook_final.pdf")
+   - Copy the page numbers or timestamp EXACTLY as shown in parentheses after the display name
+   - Include a 2-3 sentence summary of what the document covers
+
+3. CRITICAL RULES:
+   - NEVER invent or use filenames (like "Something.pdf") - ONLY use the display names shown in **bold**
+   - If a document shows "(Pages 19, 24, 25)", list it ONCE with those exact pages, NOT as separate entries
+   - List exactly the documents shown in the context, no more, no less
+
+4. Format each entry EXACTLY as:
+   **[Exact Display Name from bold text]** ([Exact page/timestamp from context]) - [2-3 sentence description]
+
+Present the relevant resources to help the user explore these materials."""
+                else:
+                    # Teacher mode: Focus on explaining and teaching
+                    full_prompt = f"""Based on the following context, please provide a comprehensive answer about HR and organizational development.
+
+{context_prompt}
+
+Question: {query}
+
+IMPORTANT INSTRUCTIONS (TEACHER MODE):
 1. Present information with the authoritative confidence of Dave Ulrich's decades of organizational research
 2. Extract frameworks, dimensions, and lists exactly as they appear in the source materials
 3. Use Dave Ulrich's direct, business-focused communication style - no hedging or tentative language
@@ -745,7 +1010,47 @@ You should be knowledgeable, patient, and focused on helping the student truly u
         except Exception as e:
             logger.error(f"Error getting sequential chunks: {e}")
             return documents  # Return original if error
-    
+
+    async def _filter_allowed_documents(self, documents: List[Dict]) -> List[Dict]:
+        """Filter out documents that shouldn't be shown in RAG results (e.g., AI training only documents)"""
+        try:
+            if not db.engine:
+                logger.warning("No database connection - skipping document filtering")
+                return documents
+
+            from sqlalchemy import text
+
+            # Get list of filenames that should NOT be shown (show_in_viewer = FALSE)
+            with db.engine.connect() as conn:
+                result = conn.execute(
+                    text("""
+                        SELECT filename
+                        FROM document_metadata
+                        WHERE show_in_viewer = FALSE
+                    """)
+                )
+
+                blocked_filenames = {row[0] for row in result}
+
+            # Filter OUT documents that are explicitly blocked
+            # Allow all documents that are either:
+            # 1. Not in the database (new documents)
+            # 2. In the database with show_in_viewer = TRUE
+            filtered_docs = [
+                doc for doc in documents
+                if doc.get('filename') not in blocked_filenames and doc.get('title') not in blocked_filenames
+            ]
+
+            if len(filtered_docs) < len(documents):
+                logger.info(f"Filtered out {len(documents) - len(filtered_docs)} AI-training-only documents")
+
+            return filtered_docs
+
+        except Exception as e:
+            logger.error(f"Error filtering documents: {e}")
+            # Return original documents if filtering fails
+            return documents
+
     def format_sources(self, context_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Legacy format_sources method for backward compatibility"""
         return self.format_sources_enhanced(context_data)

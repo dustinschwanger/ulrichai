@@ -34,9 +34,9 @@ async def reindex_all_documents():
     documents = session.query(DocumentMetadata).all()
     logger.info(f"Found {len(documents)} documents in database")
 
-    # Create processor with 3000 character chunks and 200 character overlap
-    processor = DocumentProcessor(chunk_size=3000, chunk_overlap=200)
-    logger.info("Using chunking config: 3000 chars with 200 char overlap")
+    # Create processor with 3000 character chunks, 200 character overlap, and list preservation
+    processor = DocumentProcessor(chunk_size=3000, chunk_overlap=200, preserve_lists=True)
+    logger.info("Using chunking config: 3000 chars with 200 char overlap, preserving lists")
 
     for doc_metadata in documents:
         filename = doc_metadata.filename
@@ -119,7 +119,7 @@ async def reindex_all_documents():
             if section_vectors:
                 index.upsert(vectors=section_vectors, namespace='sections')
 
-            # Store chunk embeddings in 'chunks' namespace WITH PAGE NUMBERS
+            # Store chunk embeddings in 'chunks' namespace WITH PAGE NUMBERS AND DISPLAY NAME
             chunk_vectors = []
             for i, chunk in enumerate(doc_data['chunks']):
                 chunk_vectors.append({
@@ -128,10 +128,11 @@ async def reindex_all_documents():
                     'metadata': {
                         'doc_id': doc_data['doc_id'],
                         'doc_title': doc_data['title'],
+                        'display_name': doc_metadata.display_name,  # Add display name for UI
                         'section_title': chunk['section_title'],
                         'chunk_text': chunk['text'],
                         'chunk_id': chunk['chunk_id'],
-                        'page_number': chunk.get('page_number')  # THIS IS THE KEY FIX
+                        'page_number': chunk.get('page_number')  # Include page numbers
                     }
                 })
 

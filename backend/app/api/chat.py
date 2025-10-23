@@ -46,7 +46,9 @@ async def chat_query_stream(request: ChatRequest):
             yield f"data: {json.dumps({'type': 'sources', 'sources': []})}\n\n"
 
             # Start getting sources in the background (don't wait)
+            logger.info(f"🔥 Creating sources_task for query: {request.query[:50]}")
             sources_task = asyncio.create_task(chat_service.get_sources_for_query(request.query))
+            logger.info(f"🔥 sources_task created: {sources_task}")
 
             # Stream the response immediately with context
             async for chunk in chat_service.process_query_stream(request.query, session_id, context=request.context):
@@ -54,12 +56,19 @@ async def chat_query_stream(request: ChatRequest):
                 # Remove delay for faster streaming
 
             # After streaming is done, check if sources are ready
+            logger.info(f"🔥 Waiting for sources_task to complete...")
             try:
                 sources = await asyncio.wait_for(sources_task, timeout=1.0)
+                logger.info(f"🔥 Sources received: {len(sources) if sources else 0} sources")
                 # Send updated sources if available
                 yield f"data: {json.dumps({'type': 'sources_update', 'sources': sources})}\n\n"
+                logger.info(f"🔥 sources_update sent to client")
             except asyncio.TimeoutError:
-                logger.warning("Sources not ready in time, skipping")
+                logger.warning("🔥 ⚠️  Sources TIMEOUT - not ready in 1 second")
+            except Exception as e:
+                logger.error(f"🔥 ❌ Error awaiting sources: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
 
             # Send completion signal
             yield f"data: {json.dumps({'type': 'done', 'session_id': session_id})}\n\n"

@@ -14,7 +14,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 class DocumentProcessor:
-    def __init__(self, chunk_size: int = None, chunk_overlap: int = None):
+    def __init__(self, chunk_size: int = None, chunk_overlap: int = None, preserve_lists: bool = True):
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if api_key:
             self.anthropic = Anthropic(api_key=api_key)
@@ -30,6 +30,9 @@ class DocumentProcessor:
         # Convert to tokens for backward compatibility (rough estimate: 4 chars per token)
         self.chunk_size = self.chunk_size_chars // 4
         self.chunk_overlap = self.chunk_overlap_chars // 4
+
+        # List preservation setting
+        self.preserve_lists = preserve_lists
         
     async def process_document(self, file_path: str, file_type: str) -> Dict[str, Any]:
         """Process document and extract hierarchical structure"""
@@ -147,58 +150,204 @@ class DocumentProcessor:
         """Find which page a character position belongs to"""
         if not page_map:
             return None
-            
+
         for page_info in page_map:
             if page_info['start_char'] <= char_position <= page_info['end_char']:
                 return page_info['page_number']
-        
+
         # If position is beyond last page, return last page number
         if page_map and char_position > page_map[-1]['end_char']:
             return page_map[-1]['page_number']
-        
+
         return None
+
+    def _is_list_item(self, line: str) -> bool:
+        """Check if a line is a list item (numbered or bulleted)"""
+        stripped = line.strip()
+        if not stripped:
+            return False
+
+        # Numbered lists: "1.", "2)", "1.1", "a.", "i.", etc.
+        numbered_patterns = [
+            r'^\d+\.',  # 1. 2. 3.
+            r'^\d+\)',  # 1) 2) 3)
+            r'^\d+\.\d+',  # 1.1, 1.2, 2.1
+            r'^[a-z]\.',  # a. b. c.
+            r'^[A-Z]\.',  # A. B. C.
+            r'^[ivxlcdm]+\.',  # i. ii. iii. (Roman numerals)
+        ]
+
+        # Bulleted lists: "•", "-", "*", "◦", "▪", "▫"
+        bulleted_chars = ['•', '-', '*', '◦', '▪', '▫', '–', '—', '●', '○']
+
+        # Check numbered patterns
+        for pattern in numbered_patterns:
+            if re.match(pattern, stripped):
+                return True
+
+        # Check bulleted patterns (must be at start of line after whitespace)
+        if stripped[0] in bulleted_chars:
+            # Make sure it's not just a dash in the middle of text
+            # It should be followed by whitespace
+            if len(stripped) > 1 and stripped[1] in [' ', '\t']:
+                return True
+
+        return False
+
+    def _detect_list_boundaries(self, text: str) -> List[Tuple[int, int]]:
+        """Detect start and end positions of lists in text
+        Returns list of (start_char, end_char) tuples"""
+        lines = text.split('\n')
+        list_boundaries = []
+
+        in_list = False
+        list_start_line = 0
+        list_start_char = 0
+
+        current_char = 0
+        for i, line in enumerate(lines):
+            line_start_char = current_char
+
+            if self._is_list_item(line):
+                if not in_list:
+                    # Start of a new list
+                    in_list = True
+                    list_start_line = i
+                    list_start_char = line_start_char
+            else:
+                if in_list:
+                    # Check if this is just a continuation line (indented)
+                    # or the end of the list
+                    if line.strip() and not line.startswith(' ') and not line.startswith('\t'):
+                        # End of list (non-empty, non-indented line)
+                        list_end_char = line_start_char
+                        list_boundaries.append((list_start_char, list_end_char))
+                        in_list = False
+                    # If empty line or indented, continue the list
+
+            current_char += len(line) + 1  # +1 for newline
+
+        # If we ended while still in a list
+        if in_list:
+            list_boundaries.append((list_start_char, current_char))
+
+        return list_boundaries
+
+    def _is_inside_list(self, char_position: int, list_boundaries: List[Tuple[int, int]]) -> bool:
+        """Check if a character position falls inside a list"""
+        for start, end in list_boundaries:
+            if start <= char_position <= end:
+                return True
+        return False
+
+    def _find_safe_chunk_boundary(self, text: str, ideal_position: int, list_boundaries: List[Tuple[int, int]],
+                                   search_backwards: bool = True) -> int:
+        """Find a safe position for chunk boundary that doesn't split lists
+
+        Args:
+            text: The full text
+            ideal_position: The ideal chunk boundary position
+            list_boundaries: List of (start, end) tuples for detected lists
+            search_backwards: If True, search backwards for boundary; if False, search forwards
+
+        Returns:
+            A safe character position that doesn't split a list
+        """
+        # If we're not in a list, return the ideal position
+        if not self._is_inside_list(ideal_position, list_boundaries):
+            return ideal_position
+
+        # We're inside a list, need to find the list boundary
+        for start, end in list_boundaries:
+            if start <= ideal_position <= end:
+                if search_backwards:
+                    # Move boundary to before the list starts
+                    return start
+                else:
+                    # Move boundary to after the list ends
+                    return end
+
+        return ideal_position
     
     async def create_smart_chunks(self, text: str, sections: List[Dict], page_map: Optional[List[Dict]] = None) -> List[Dict[str, Any]]:
-        """Create overlapping chunks with section awareness AND PAGE NUMBERS"""
+        """Create overlapping chunks with section awareness, PAGE NUMBERS, and LIST PRESERVATION"""
         chunks = []
         chunk_id = 0
-        
+
         for section in sections:
             section_text = section['text']
             section_start_char = text.find(section_text)  # Find where this section starts in full text
-            words = section_text.split()
-            
-            # Approximate tokens (rough estimate: 1 token ≈ 0.75 words)
-            words_per_chunk = int(self.chunk_size * 0.75)
-            overlap_words = int(self.chunk_overlap * 0.75)
-            
-            start = 0
-            while start < len(words):
-                end = min(start + words_per_chunk, len(words))
-                chunk_text = ' '.join(words[start:end])
-                
+
+            # Detect list boundaries in this section if preserve_lists is enabled
+            list_boundaries = []
+            if self.preserve_lists:
+                list_boundaries = self._detect_list_boundaries(section_text)
+                if list_boundaries:
+                    logger.info(f"Detected {len(list_boundaries)} lists in section '{section['title']}'")
+
+            # Use character-based chunking instead of word-based to better handle list boundaries
+            target_chunk_chars = self.chunk_size_chars
+            overlap_chars = self.chunk_overlap_chars
+
+            start_char = 0
+            while start_char < len(section_text):
+                # Calculate ideal end position
+                end_char = min(start_char + target_chunk_chars, len(section_text))
+
+                # If preserve_lists is enabled, adjust chunk boundary to avoid splitting lists
+                if self.preserve_lists and list_boundaries and end_char < len(section_text):
+                    # Check if the end position falls inside a list
+                    if self._is_inside_list(end_char, list_boundaries):
+                        # Adjust boundary to not split the list
+                        safe_end = self._find_safe_chunk_boundary(
+                            section_text,
+                            end_char,
+                            list_boundaries,
+                            search_backwards=True
+                        )
+
+                        # If moving backwards would make chunk too small, try moving forwards
+                        if safe_end - start_char < target_chunk_chars * 0.5:
+                            safe_end = self._find_safe_chunk_boundary(
+                                section_text,
+                                end_char,
+                                list_boundaries,
+                                search_backwards=False
+                            )
+
+                        end_char = safe_end
+
+                # Extract chunk text
+                chunk_text = section_text[start_char:end_char].strip()
+
+                # Skip empty chunks
+                if not chunk_text:
+                    break
+
                 # Find the character position of this chunk in the full text
-                chunk_start_in_section = len(' '.join(words[:start]))
-                chunk_char_position = section_start_char + chunk_start_in_section if section_start_char >= 0 else 0
-                
+                chunk_char_position = section_start_char + start_char if section_start_char >= 0 else 0
+
                 # Find which page this chunk belongs to
                 page_number = self.find_page_for_position(chunk_char_position, page_map) if page_map else None
-                
+
                 chunks.append({
                     'chunk_id': f"chunk_{chunk_id}",
                     'section_title': section['title'],
                     'text': chunk_text,
-                    'start_word': start,
-                    'end_word': end,
-                    'page_number': page_number  # ADD PAGE NUMBER TO EACH CHUNK
+                    'start_char': start_char,
+                    'end_char': end_char,
+                    'page_number': page_number
                 })
-                
+
                 chunk_id += 1
-                start += words_per_chunk - overlap_words
-                
-                if start >= len(words):
+
+                # Move to next chunk with overlap
+                start_char = end_char - overlap_chars
+
+                # Prevent infinite loop - if we're not making progress, break
+                if start_char >= len(section_text) or end_char >= len(section_text):
                     break
-        
+
         return chunks
     
     async def generate_summary(self, text: str) -> str:

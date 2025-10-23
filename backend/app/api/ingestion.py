@@ -96,10 +96,15 @@ async def process_document_task(file_path: str, file_type: str, original_filenam
         # Extract chunking parameters (in characters, not tokens)
         chunk_size = chunking_config.get('chunkSize', 3000)  # Default 3000 chars
         chunk_overlap = chunking_config.get('chunkOverlap', 200)  # Default 200 chars
+        preserve_lists = chunking_config.get('preserveLists', True)  # Default True
 
         # Create processor with custom chunking settings
         from app.processing.document_processor import DocumentProcessor
-        custom_processor = DocumentProcessor(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        custom_processor = DocumentProcessor(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            preserve_lists=preserve_lists
+        )
 
         # Process document with custom chunking
         doc_data = await custom_processor.process_document(file_path, file_type)
@@ -127,7 +132,7 @@ async def process_document_task(file_path: str, file_type: str, original_filenam
         
         # Store in vector database
         logger.info("Storing in vector database...")
-        await store_in_vector_db(doc_data, doc_embedding, section_embeddings, chunk_embeddings)
+        await store_in_vector_db(doc_data, doc_embedding, section_embeddings, chunk_embeddings, metadata)
         
         # Store metadata in database
         logger.info("Storing metadata in database...")
@@ -396,9 +401,13 @@ async def process_video_task(file_path: str, file_type: str, original_filename: 
         import traceback
         logger.error(traceback.format_exc())
 
-async def store_in_vector_db(doc_data: Dict, doc_embedding: List[float], 
-                            section_embeddings: List[Dict], chunk_embeddings: List[List[float]]):
+async def store_in_vector_db(doc_data: Dict, doc_embedding: List[float],
+                            section_embeddings: List[Dict], chunk_embeddings: List[List[float]],
+                            metadata: Dict[str, Any] = None):
     """Store embeddings in Pinecone using namespaces"""
+
+    if metadata is None:
+        metadata = {}
     
     try:
         # Get the single index
@@ -445,6 +454,7 @@ async def store_in_vector_db(doc_data: Dict, doc_embedding: List[float],
                 'metadata': {
                     'doc_id': doc_data['doc_id'],
                     'doc_title': doc_data['title'],
+                    'display_name': metadata.get('displayName', doc_data['title']),  # Add display name for UI
                     'section_title': chunk['section_title'],
                     'chunk_text': chunk['text'],
                     'chunk_id': chunk['chunk_id'],
