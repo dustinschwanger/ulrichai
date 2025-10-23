@@ -237,9 +237,16 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
                 is_structured_query = self._is_structured_query(query)
                 
                 for match in search_results.matches:
+                    # Support both PDF and video metadata formats
+                    # PDFs use: chunk_text, doc_title, section_title
+                    # Videos use: content, title, section
+                    content = match.metadata.get('content') or match.metadata.get('chunk_text') or match.metadata.get('section_text', '')
+                    title = match.metadata.get('title') or match.metadata.get('doc_title', '')
+                    section = match.metadata.get('section') or match.metadata.get('section_title', '')
+
                     documents.append({
-                        'content': match.metadata.get('content', ''),
-                        'title': match.metadata.get('title', ''),
+                        'content': content,
+                        'title': title,
                         'filename': match.metadata.get('filename', ''),
                         'page_number': match.metadata.get('page_number', ''),
                         'score': float(match.score) if hasattr(match, 'score') else 0.0,
@@ -247,7 +254,7 @@ Provide a comprehensive, authoritative response in Dave Ulrich's voice based on 
                         'start_time': match.metadata.get('start_time'),
                         'end_time': match.metadata.get('end_time'),
                         'content_type': match.metadata.get('content_type'),
-                        'section': match.metadata.get('section', '')
+                        'section': section
                     })
                 
                 # If structured query, get sequential chunks from best matches
